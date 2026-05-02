@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Song of Solace - Eternal Flux</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 40px; border-radius: 30px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }
+        h1 { color: #b8c0ff; font-weight: lighter; font-style: italic; }
+        .status-box { margin: 30px 0; padding: 20px; background: rgba(0,0,0,0.4); border-radius: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; text-align: left; font-size: 0.9em; line-height: 1.6; border: 1px solid rgba(184, 192, 255, 0.1); }
+        #startBtn { padding: 15px 40px; cursor: pointer; background: transparent; border: 1px, solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: all 0.3s; }
+        #startBtn:hover { background: #b8c0ff; color: #0a0a12; }
+    </style>
+    
+    <!-- Load your Instrument Ecosystem -->
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../instruments/harp/OrchestraHarp.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Song of Solace</h1>
+        <p style="color: #666;">De stroom wordt gedicteerd door de tijd.</p>
+        <div class="status-box" id="debug">Systeem: Stand-by</div>
+        <button id="startBtn">Open the Source</button>
+    </div>
+
+    <script>
+        // --- DETERMINISTIC HELPER ---
+        function sRandom(seed) {
+            var x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // --- HARMONY MAP ---
+        // Converted from note names to MIDI numbers for your Instrument classes
+        const chordMap = {
+            "Cmaj7": { notes: [48, 52, 55, 59], next: ["Fmaj7", "Am7", "G7"] },
+            "Fmaj7": { notes: [41, 45, 48, 52], next: ["Cmaj7", "Dm7", "G7"] },
+            "Am7":   { notes: [45, 48, 52, 55], next: ["Dm7", "Fmaj7", "Cmaj7"] },
+            "G7":    { notes: [43, 47, 50, 53], next: ["Cmaj7", "Am7", "Fmaj7"] },
+            "Dm7":   { notes: [50, 53, 57, 60], next: ["G7", "Am7", "Fmaj7"] },
+            "Em7":   { notes: [40, 43, 47, 50], next: ["Am7", "Dm7", "Cmaj7"] }
+        };
+
+        let audioContext;
+        let pederInst, rainaInst, glassInst;
+        let currentChordName = "Cmaj7";
+        let step = 0;
+        let loopInterval;
+
+        // --- INITIALIZATION ---
+             // --- INITIALIZATION ---
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const effectMgr = new EffectManager(audioContext);
+
+            const orchestra = {
+                piano: new FeltPiano(audioContext),
+                bells: new SereneBells(audioContext),
+                harp: new OrchestraHarp(audioContext)
+            };
+
+            orchestra.piano.setVolume(0.5);// 1.0);
+            orchestra.bells.setVolume(1.5);
+            orchestra.harp.setVolume(0.05);//0.1);
+
+            Object.values(orchestra).forEach(inst => {
+                effectMgr.setReverb(inst, 'cathedral');
+            });
+
+            window.orchestra = orchestra;
+            startLoop();
+        }
+
+        // Helper functie om een akkoord te arpeggiëren
+        function playArpeggio(instrument, notes, volume, duration, speed = 0.2) {
+            notes.forEach((note, index) => {
+                // Elke noot start een klein beetje later (speed)
+                const startTime = (index * speed) / 1000; 
+                // We gebruiken de instrument.play() met de startTime parameter
+                instrument.play(note, volume, duration, startTime);
+            });
+        }
+
+        function startLoop() {
+            const bpm = 65; // Veel langzamer: van 58 naar 20 BPM voor een "Eternal" gevoel
+            const stepDuration = (60 / bpm) / 2 * 1000; // 8ste noot is nu veel langer
+
+            loopInterval = setInterval(() => {
+                const now = new Date();
+                const timestamp = now.getTime() / 1000;
+                const dailySeed = now.getFullYear() * 10000 + (now.getMonth()+1) * 100 + now.getDate();
+
+                const pederInfluence = (Math.sin(timestamp * 0.1) + 1) * 50;
+                const rainaInfluence = (Math.sin(timestamp * 0.15 + 2) + 1) * 50;
+                const glassInfluence = (Math.sin(timestamp * 0.07 + 4) + 1) * 50;
+
+                const total = pederInfluence + rainaInfluence + glassInfluence;
+                const mix = {
+                    peder: (pederInfluence / total) * 100,
+                    raina: (rainaInfluence / total) * 100,
+                    glass: (glassInfluence / total) * 100
+                };
+
+                document.getElementById('debug').innerHTML = 
+                    `Time: ${now.toLocaleTimeString()}<br>` +
+                    `Chord: ${currentChordName}<br>` +
+                    `Mix: P:mix.peder.toFixed(1){mix.peder.toFixed(1)}% R:mix.peder.toFixed(1){mix.raina.toFixed(1)}% G:${mix.glass.toFixed(1)}%`;
+
+                // 1. Harmony Shift (Elke 8 stappen)
+                if (step % 8 === 0) {
+                    const possible = chordMap[currentChordName].next;
+                    currentChordName = possible[Math.floor(sRandom(dailySeed + step) * possible.length)];
+                    const chord = chordMap[currentChordName];
+                    
+                    // --- ARPEGGIO'S in plaats van blok-akkoorden ---
+                    // Peder laat de piano langzaam door het akkoord omhoog glijden
+                    playArpeggio(window.orchestra.piano, chord.notes, 0.2, 8000, 0.4);
+                    
+                    // De Harp speelt de basisnoot diep en langzaam
+                    window.orchestra.harp.play(chord.notes[0] - 12, 0.2, 12000); 
+                }
+
+                const chord = chordMap[currentChordName];
+                const notes = chord.notes;
+                const roll = sRandom(dailySeed + step + timestamp) * 100;
+
+                if (roll < mix.glass) {
+                    // GLASS: Minimalistisch en ritmisch
+                    if (step % 4 === 0) {
+                        // Harp pluck op de grondtoon
+                        window.orchestra.harp.play(notes[0], 0.3, 1000);
+                    } else if (step % 4 === 2) {
+                        // Bellen op de kwint/septiem
+                        window.orchestra.bells.play(notes[2], 0.2, 2000);
+                    }
+                } 
+                else if (roll < mix.glass + mix.raina) {
+                    // RAINA: Lyrische arpeggio's
+                    if (step % 2 === 0) {
+                        // Speelt een klein fragment van het akkoord als arpeggio
+                        const fragment = [notes[0], notes[1], notes[2]];
+                        playArpeggio(window.orchestra.bells, fragment, 0.2, 4000, 0.15);
+                    } else if (Math.random() > 0.8) {
+                        window.orchestra.harp.play(notes[2] + 24, 0.2, 3000);
+						   // Bellen op de kwint/septiem
+                        window.orchestra.bells.play(notes[3]+24, 0.1, 2000);
+                    }
+                } 
+                else {
+                    // PEDER: Diepe, zware drones
+                    if (step % 16 === 0) {
+                        // Een zeer lange, zachte piano noot
+                        window.orchestra.piano.play(notes[1]+32, 0.3, 12000);
+                    }
+                    if (step % 8 === 4) {
+                        // Een diepe harp resonantie
+                        window.orchestra.harp.play(notes[0] +12, 0.2, 10000);
+                    }
+                }
+
+                step++;
+            }, stepDuration);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+        });
+    </script>
+</body>
+</html>

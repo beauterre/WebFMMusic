@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; background: #f0f2f5; }
+        .container { max-width: 900px; margin: auto; }
+        .control-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 8px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        label { font-weight: bold; display: inline-block; width: 180px; }
+        input, select { margin-bottom: 10px; padding: 5px; }
+        button { cursor: pointer; padding: 8px 15px; margin: 5px; font-weight: bold; border-radius: 4px; border: 1px solid #999; }
+        .stop-btn { background-color: #ffcccc; border: 1px solid red; }
+        .render-btn { background-color: #d4edda; border: 1px solid #28a745; }
+        .play-btn { background-color: #cce5ff; border: 1px solid #004085; }
+        .fx-btn { background-color: #fdf2ff; border: 1px solid #a29bfe; }
+        .status { font-style: italic; color: #666; text-align: center; }
+        h2 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
+        .tuning-row { margin-bottom: 10px; }
+    </style>
+    <title>Ultimate Instrument Testbed</title>
+    
+    <script src="../general/Instrument.js"></script>
+    <script src="../instruments/harp/OrchestraHarp.js"></script>
+    <script src="../instruments/harp/SereneHarp.js"></script>
+    <script src="../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../instruments/Kuwabara/FMKuwabara.js"></script>
+    <script src="../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../instruments/SereneBells/SereneBellPad.js"></script>
+    <script src="../instruments/Percussive/Lithophone.js"></script>
+    <script src="../general/OrchestraRenderer.js"></script>
+    <script src="../general/EffectManager.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>Instrument Master Testbed</h1>
+
+    <!-- 1. GLOBAL SETTINGS -->
+    <div class="control-group">
+        <h2>Global Settings</h2>
+        <div class="tuning-row">
+            <label>Select Instrument:</label> 
+            <select id="instrument-selector"></select>
+        </div>
+        <div class="tuning-row">
+            <label>Base Pitch (Hz):</label> 
+            <input id="base-pitch" type="number" value="440">
+        </div>
+        <div class="tuning-row">
+            <label>TET Division:</label> 
+            <input id="tet-system" type="number" value="12">
+            <small>(12=Standard, 19=Microtonal, 31=Quarter-tone)</small>
+        </div>
+        <div id="inst-name-display" style="font-weight: bold; color: blue;">Active: None</div>
+    </div>
+
+    <!-- 2. LIVE TEST -->
+    <div class="control-group">
+        <h2>Live Mode (Real-time)</h2>
+        <label>MIDI Note:</label> <input id="midi-note-number" type="number" value="60"><br>
+        <label>Decay (ms):</label> <input id="decay-time" type="number" value="3000"><br>
+        <button id="start">Play Note</button>
+        <button id="stop-note" class="stop-btn">Stop Note</button>
+    </div>
+
+    <!-- 3. LIVE SEQUENCER -->
+    <div class="control-group">
+        <h2>Live Sequencer (Real-time)</h2>
+        <label>Arpeggio Delay (ms):</label> <input id="adelay" type="number" value="500"><br>
+        <button id="arpeggio">Start Arpeggio</button>
+        <button id="stop-all" class="stop-btn">Stop All</button>
+    </div>
+
+    <!-- 4. EFFECTS -->
+    <div class="control-group">
+        <h2>Effects Chain</h2>
+        
+        <div class="tuning-row">
+            <label>Reverb:</label> 
+            <select id="reverb-type">
+                <option value="none">None</option>
+                <option value="hall">Hall</option>
+                <option value="cathedral">Cathedral</option>
+                <option value="cosmic">Cosmic</option>
+                <option value="room">Small Room</option>
+                <option value="cold">Cold House</option>
+            </select>
+        </div>
+
+        <div class="tuning-row">
+            <label>Filter:</label> 
+            <select id="filter-type">
+                <option value="none">None</option>
+                <option value="lowpass">Low Pass (Dull)</option>
+                <option value="highpass">High Pass (Thin)</option>
+                <option value="bandpass">Band Pass (Telephone)</option>
+                <option value="notch">Notch (Filter out freq)</option>
+            </select>
+            <input id="filter-freq" type="number" value="1000" style="width: 60px;"> Hz
+        </div>
+
+        <button id="apply-fx" class="fx-btn">Update Effect Chain</button>
+        <button id="remove-fx" class="stop-btn">Clear All</button>
+    </div>
+
+    <!-- 5. PRERECORDED SEQUENCER -->
+    <div class="control-group">
+        <h2>Prerecorded (Offline Rendering)</h2>
+        <button id="render-solo" class="render-btn">Render Solo</button>
+        <button id="render-orch" class="render-btn">Render Orchestra</button>
+        <hr>
+        <button id="play-orch" class="play-btn" disabled>Play Rendered Buffer</button>
+        <div id="render-status" class="status">Ready.</div>
+    </div>
+</div>
+
+<script>
+    let audioContext;
+    let instrument;
+    let effectMgr;
+    let arpeggioInterval = null;
+    let lastPlayedNote = null;
+    let renderedBuffer = null;
+
+    // Initialize Global Tuning Object
+    window.GlobalTuning = {
+        basePitch: 440,
+        tet: 12
+    };
+
+    const availableInstruments = window["TAG"].instruments;
+    const selector = document.getElementById("instrument-selector");
+
+    function setupSelector() {
+        availableInstruments.forEach((instClass, index) => {
+            let opt = document.createElement("option");
+            opt.value = index;
+            opt.text = instClass.name;
+            selector.add(opt);
+        });
+        updateInstrument();
+    }
+
+    function updateInstrument() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+        }
+        const selectedIndex = selector.value;
+        const SelectedClass = availableInstruments[selectedIndex];
+        instrument = new SelectedClass(audioContext);
+        document.getElementById("inst-name-display").innerText = "Active: " + instrument.name;
+    }
+
+    // Tuning Listeners
+    document.getElementById("base-pitch").addEventListener("input", (e) => {
+        window.GlobalTuning.basePitch = Number(e.target.value);
+    });
+    document.getElementById("tet-system").addEventListener("input", (e) => {
+        window.GlobalTuning.tet = Number(e.target.value);
+    });
+    selector.addEventListener("change", updateInstrument);
+
+    // --- LIVE FUNCTIONS ---
+    function playInstrument() {
+        if (!instrument) return;
+        const nr = Number(document.getElementById("midi-note-number").value);
+        const decay = Number(document.getElementById("decay-time").value);
+        lastPlayedNote = nr;
+        instrument.play(nr, 0.5, decay);
+    }
+
+    function stopCurrentNote() {
+        if (!instrument || lastPlayedNote === null) return;
+        instrument.stop(lastPlayedNote);
+    }
+
+    function stopAll() {
+        if (arpeggioInterval) {
+            clearInterval(arpeggioInterval);
+            arpeggioInterval = null;
+        }
+        if (!instrument) return;
+        for (let i = 0; i < 127; i++) instrument.stop(i);
+    }
+
+    // --- SEQUENCER LOGIC ---
+    var arpeggio_base_notes = [0, 2, 7, 12];
+    var noteIdx = 0, dnote = 1;
+
+    function startPlayArpeggio() {
+        if (arpeggioInterval) return;
+        if (!instrument) return;
+        var expanded = [];
+        [-12, 0, 12].forEach(oct => arpeggio_base_notes.forEach(n => expanded.push(n + oct)));
+        const delay = Number(document.getElementById("adelay").value);
+        const baseNr = Number(document.getElementById("midi-note-number").value);
+        arpeggioInterval = setInterval(() => {
+            const currentNote = baseNr + expanded[noteIdx];
+            instrument.play(currentNote, 0.3, 2000);
+            noteIdx += dnote;
+            if (noteIdx >= expanded.length - 1 || noteIdx <= 0) dnote *= -1;
+            if (noteIdx < 0) noteIdx = 0;
+            if (noteIdx >= expanded.length) noteIdx = expanded.length - 1;
+        }, delay);
+    }
+
+
+
+    async function renderSolo() {
+        const status = document.getElementById("render-status");
+        status.innerText = "Rendering Solo...";
+        try {
+            const renderer = new OrchestraRenderer();
+            const currentClass = availableInstruments[selector.value]; 
+            const baseNr = Number(document.getElementById("midi-note-number").value);
+            const decay = Number(document.getElementById("decay-time").value);
+            const soloScore = [
+                { instrument: currentClass, note: baseNr, vol: 0.6, start: 0.0, duration: decay },
+                { instrument: currentClass, note: baseNr + 4, vol: 0.4, start: 1.0, duration: decay },
+                { instrument: currentClass, note: baseNr + 7, vol: 0.5, start: 2.0, duration: decay },
+            ];
+            renderedBuffer = await renderer.renderOrchestra(soloScore, 4);
+            status.innerText = `Rendered Solo: ${currentClass.name}`;
+            document.getElementById("play-orch").disabled = false;
+        } catch (e) { status.innerText = "Error: " + e.message; }
+    }
+
+    async function renderOrchestra() {
+        const status = document.getElementById("render-status");
+        status.innerText = "Rendering Orchestra...";
+        try {
+            const renderer = new OrchestraRenderer();
+            const orchestraScore = [
+                { instrument: availableInstruments[0], note: 48, vol: 0.5, start: 0.0, duration: 4000 },
+                { instrument: availableInstruments[1], note: 60, vol: 0.4, start: 0.5, duration: 2000 },
+                { instrument: availableInstruments[2], note: 72, vol: 0.3, start: 1.0, duration: 5000 },
+                { instrument: availableInstruments[3], note: 60, vol: 0.4, start: 2.0, duration: 1000 },
+            ];
+            renderedBuffer = await renderer.renderOrchestra(orchestraScore, 6);
+            status.innerText = "Rendered Full Orchestra!";
+            document.getElementById("play-orch").disabled = false;
+        } catch (e) { status.innerText = "Error: " + e.message; }
+    }
+
+    function playRendered() {
+        if (!renderedBuffer) return;
+        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createBufferSource();
+        source.buffer = renderedBuffer;
+        source.connect(audioContext.destination);
+        source.start();
+        document.getElementById("render-status").innerText = "Playing rendered buffer...";
+    }
+
+    document.getElementById("start").addEventListener("click", playInstrument);
+    document.getElementById("stop-note").addEventListener("click", stopCurrentNote);
+    document.getElementById("arpeggio").addEventListener("click", startPlayArpeggio);
+    document.getElementById("stop-all").addEventListener("click", stopAll);
+
+  // --- EFFECT LISTENERS ---
+    document.getElementById("apply-fx").addEventListener("click", () => {
+        if (!instrument || !effectMgr) return;
+        
+        const revType = document.getElementById("reverb-type").value;
+        const filType = document.getElementById("filter-type").value;
+        const filFreq = Number(document.getElementById("filter-freq").value);
+
+        // Set Reverb (if 'none', we pass null to remove it)
+        effectMgr.setReverb(instrument, revType === 'none' ? null : revType);
+        
+        // Set Filter (if 'none', we pass null to remove it)
+        effectMgr.setFilter(instrument, filType === 'none' ? null : filType, filFreq);
+    });
+
+    document.getElementById("remove-fx").addEventListener("click", () => {
+        if (!instrument || !effectMgr) return;
+        effectMgr.clearAll(instrument);
+        
+        // Reset UI
+        document.getElementById("reverb-type").value = "none";
+        document.getElementById("filter-type").value = "none";
+    });
+
+
+    document.getElementById("render-solo").addEventListener("click", renderSolo);
+    document.getElementById("render-orch").addEventListener("click", renderOrchestra);
+    document.getElementById("play-orch").addEventListener("click", playRendered);
+
+    setupSelector();
+</script>
+</body>
+</html>

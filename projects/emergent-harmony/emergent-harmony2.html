@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Music Engine</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #eee; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 15px; text-align: center; border: 1px solid #333; }
+        button { padding: 12px 24px; cursor: pointer; background: #4ecca3; border: none; border-radius: 8px; font-weight: bold; }
+        #status { margin-top: 20px; font-family: monospace; color: #4ecca3; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>Emergent Music</h1>
+        <button id="startBtn">Start Evolution</button>
+        <div id="status">System: Idle</div>
+    </div>
+
+    <script>
+        let ctx, inst, activeNotes = [];
+        const roles = {
+            bass: { min: 36, max: 48 },
+            harmony: { min: 48, max: 64 },
+            melody: { min: 64, max: 84 }
+        };
+
+        // MATHEMATICAL HARMONY: Find the simplest fraction for a ratio
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            
+            // Check all simple integer ratios up to 8 (The "Harmonic Series")
+            for (let n = 1; n <= 8; n++) {
+                for (let d = 1; d <= 8; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError; // Lower is more consonant
+        }
+
+        function findBestNote(role) {
+            const cfg = roles[role];
+            let bestNote = 60, lowestError = Infinity;
+
+            for (let i = 0; i < 15; i++) { // Sample 15 candidates
+                const candidate = Math.floor(Math.random() * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                let totalError = 0;
+                activeNotes.forEach(n => {
+                    totalError += getConsonanceScore(candidateFreq, n.freq);
+                });
+
+                if (totalError < lowestError) {
+                    lowestError = totalError;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        async function init() {
+            ctx = new (window.AudioContext || window.webkitAudioContext)();
+            inst = new FeltPiano(ctx);
+            
+            let step = 0;
+            setInterval(() => {
+                const now = ctx.currentTime;
+                // Cleanup expired notes
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                // 1. BASS: 1 per measure (Step 0)
+                if (step % 16 === 0) {
+                    const note = findBestNote('bass');
+                    inst.play(note, 0.4, 8000);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 8 });
+                }
+
+                // 2. HARMONY: Arpeggiated chords every 8 or 16 steps
+                if (step % 8 === 0) {
+                    const notes = [];
+                    for(let i=0; i<3; i++) {
+                        const n = findBestNote('harmony');
+                        notes.push(n);
+                        // We don't add to activeNotes yet, only when they actually play
+                    }
+                    // Play arpeggio: spread notes over 1 second
+                    notes.forEach((n, i) => {
+                        const startOffset = i * 0.3;
+                        inst.play(n, 0.2, 4000, now + startOffset);
+                        // Since we are scheduling in the future, we'll add it to activeNotes 
+                        // via a timeout to keep the ratio-search accurate
+                        setTimeout(() => {
+                            activeNotes.push({ freq: Instrument.midiToFrequency(n), startTime: now + startOffset, duration: 4 });
+                        }, startOffset * 1000);
+                    });
+                }
+
+                // 3. MELODY: Jumpier rhythmic feel (3, 4, 6, 8)
+                if ([3, 4, 6, 8].some(d => step % d === 0) && Math.random() > 0.3) {
+                    const note = findBestNote('melody');
+                    inst.play(note, 0.3, 1500);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 1.5 });
+                }
+
+                document.getElementById('status').innerText = `Step: step∣NotesActive:{step} | Notes Active:step∣NotesActive:{activeNotes.length}`;
+                step++;
+            }, 250);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startBtn').style.display = 'none';
+            init();
+        });
+    </script>
+</body>
+</html>

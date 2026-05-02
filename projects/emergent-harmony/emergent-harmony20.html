@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Glass - Modal Architecture</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { text-align: center; background: #161625; padding: 40px; border-radius: 30px; border: 1px solid #2a2a4a; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        h1 { font-weight: 300; letter-spacing: 4px; color: #b8c0ff; margin-bottom: 10px; }
+        p { color: #666; margin-bottom: 30px; font-style: italic; }
+        button { padding: 20px 40px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 50px; font-weight: bold; color: #0a0a12; font-size: 1.2em; transition: 0.3s; }
+        button:hover { background: #fff; transform: scale(1.05); }
+        #status { margin-top: 30px; font-family: monospace; color: #555; font-size: 0.9em; }
+        .event-flash { color: #ffb8ff !important; font-weight: bold; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>MODAL GLASS</h1>
+        <p>Weighted Influence & Mode Attractors</p>
+        <button id="startBtn">Begin Composition</button>
+        <div id="status">Silence...</div>
+    </div>
+
+    <script>
+        let ctx, inst, activeNotes = [];
+        let isPlaying = false;
+        let globalStep = 0;
+        let currentRoot = 48;
+        let currentMode = 'major'; // 'major' or 'minor'
+        let lastNotes = { bass: 48, mid: 60, high: 72 };
+        let memoryBank = [];
+        let energy = 0.5;
+        let energyDirection = 0.005;
+        let stepsSinceLastMutation = 0;
+        
+        const STABILITY_THRESHOLD = 25; 
+        const RANDOM_MUTATION_CHANCE = 0.15; 
+        const MIN_TIME_BETWEEN_EVENTS = 12;
+
+        function getConsonanceScore(freq1, freq2, mode) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            let isOctave = false;
+
+            for (let n = 1; n <= 12; n++) {
+                for (let d = 1; d <= 12; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) {
+                        bestError = error;
+                        isOctave = (d === 1);
+                        
+                        // MODAL BIAS: Artificially lower the error for mode-defining intervals
+                        // This creates the "Attractor" for Minor/Major
+                        if (mode === 'minor' && n === 6 && d === 5) bestError -= 0.02; // Reward Minor 3rd
+                        if (mode === 'major' && n === 5 && d === 4) bestError -= 0.02; // Reward Major 3rd
+                    }
+                }
+            }
+            return { error: bestError, isOctave: isOctave };
+        }
+
+        function findConsonantNote(role, root, mode) {
+            const roles = {
+                bass: { min: 36, max: 48, maxJump: 7, minJump: 0 }, 
+                mid: { min: 48, max: 72, maxJump: 12, minJump: 0 }, 
+                high: { min: 60, max: 84, maxJump: 18, minJump: 1 } 
+            };
+            const cfg = roles[role];
+            const rootFreq = Instrument.midiToFrequency(root);
+            let candidates = [];
+
+            for (let i = 0; i < 200; i++) {
+                const candidate = Math.floor(Math.random() * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                // 1. Root Influence (with current mode)
+                const rootRes = getConsonanceScore(candidateFreq, rootFreq, mode);
+                let score = rootRes.error;
+
+                // 2. Distance-Weighted Influence (Listen to other playing voices)
+                activeNotes.forEach(active => {
+                    const dist = Math.abs(candidateFreq - active.freq);
+                    const activeRes = getConsonanceScore(candidateFreq, active.freq, mode);
+                    const weight = 1.0 / (1.0 + (dist * 0.001)); 
+                    score += activeRes.error * weight;
+                });
+
+                // Constraints
+                let penalty = 0;
+                if (Math.abs(candidate - root) > cfg.maxJump) penalty += 0.15;
+                if (Math.abs(candidate - lastNotes[role]) < cfg.minJump) penalty += 0.1;
+                const fractionBonus = rootRes.isOctave ? 0.04 : 0;
+                
+                candidates.push({ note: candidate, score: score + penalty + fractionBonus });
+            }
+
+            candidates.sort((a, b) => a.score - b.score);
+            const topPool = candidates.slice(0, 15);
+            const totalInverseScore = topPool.reduce((sum, c) => sum + (1 / (c.score + 0.01)), 0);
+            let randomThreshold = Math.random() * totalInverseScore;
+            let cumulativeWeight = 0;
+
+            for (let cand of topPool) {
+                cumulativeWeight += (1 / (cand.score + 0.01));
+                if (cumulativeWeight >= randomThreshold) return cand.note;
+            }
+            return topPool[0].note;
+        }
+
+        class Layer {
+            constructor(role, cycleLength, volume, duration) {
+                this.role = role;
+                this.cycleLength = cycleLength;
+                this.volume = volume;
+                this.duration = duration;
+                this.cell = [];
+                this.initCell();
+            }
+
+            initCell() {
+                this.cell = [];
+                for (let i = 0; i < this.cycleLength; i++) {
+                    this.cell.push(findConsonantNote(this.role, currentRoot, currentMode));
+                }
+            }
+
+            evolve(globalRoot, globalMode, forceAll = false) {
+                this.cell = this.cell.map(note => {
+                    if (forceAll) return findConsonantNote(this.role, globalRoot, globalMode);
+                    const noteFreq = Instrument.midiToFrequency(note);
+                    const rootFreq = Instrument.midiToFrequency(globalRoot);
+                    return getConsonanceScore(noteFreq, rootFreq, globalMode).error > 0.12 ? findConsonantNote(this.role, globalRoot, globalMode) : note;
+                });
+            }
+
+            play(step, now, energy) {
+                const playChance = { bass: 0.9, mid: 0.7, high: 0.5 }[this.role];
+                if (Math.random() > (energy * playChance)) return;
+                const noteIdx = step % this.cycleLength;
+                const note = this.cell[noteIdx];
+                inst.play(note, this.volume * energy, 4000);
+                lastNotes[this.role] = note; 
+                activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: this.duration });
+            }
+        }
+
+        async function startEngine() {
+            if (!ctx) {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                inst = new FeltPiano(ctx);
+            }
+
+            isPlaying = true;
+            const layers = [
+                new Layer('bass', 8, 0.4, 4),
+                new Layer('mid', 5, 0.2, 2),
+                new Layer('high', 7, 0.15, 1)
+            ];
+
+            setInterval(() => {
+                if (!isPlaying) return;
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                energy += energyDirection;
+                if (energy > 1.0 || energy < 0.2) energyDirection *= -1;
+
+                if (globalStep % 8 === 0) {
+                    currentRoot += Math.floor(Math.random() * 3) - 1;
+                    if (currentRoot < 36 || currentRoot > 60) currentRoot = 48;
+                }
+
+                stepsSinceLastMutation++;
+                const isCooldownOver = stepsSinceLastMutation >= MIN_TIME_BETWEEN_EVENTS;
+                const shouldMutate = isCooldownOver && ((stepsSinceLastMutation > STABILITY_THRESHOLD) || (Math.random() < RANDOM_MUTATION_CHANCE));
+
+                if (shouldMutate) {
+                    stepsSinceLastMutation = 0;
+                    const roll = Math.random();
+                    const statusEl = document.getElementById('status');
+
+                    if (roll < 0.4) {
+                        const eventType = Math.floor(Math.random() * 4); // Added a 4th event
+                        if (eventType === 0) {
+                            currentRoot += (Math.random() > 0.5 ? 7 : -7); 
+                            if (currentRoot < 36 || currentRoot > 60) currentRoot = 48;
+                            layers.forEach(l => l.evolve(currentRoot, currentMode, true));
+                            statusEl.innerHTML = `<span class="event-flash">EVENT: Harmonic Shift!</span>`;
+                        } else if (eventType === 1) {
+                            const target = layers[Math.floor(Math.random() * layers.length)];
+                            target.initCell();
+                            statusEl.innerHTML = `<span class="event-flash">EVENT: Cell Mutation!</span>`;
+                        } else if (eventType === 2) {
+                            const target = layers[Math.floor(Math.random() * layers.length)];
+                            target.cycleLength = [3, 4, 5, 6, 7, 8, 9][Math.floor(Math.random() * 7)];
+                            target.initCell();
+                            statusEl.innerHTML = `<span class="event-flash">EVENT: Phase Shift!</span>`;
+                        } else {
+                            // MODAL FLIP
+                            currentMode = currentMode === 'major' ? 'minor' : 'major';
+                            layers.forEach(l => l.evolve(currentRoot, currentMode, true));
+                            statusEl.innerHTML = `<span class="event-flash">EVENT: Modal Flip to ${currentMode.toUpperCase()}!</span>`;
+                        }
+                        setTimeout(() => { statusEl.innerText = `Root: currentRoot∣Mode:{currentRoot} | Mode:currentRoot∣Mode:{currentMode} | Energy: energy.toFixed(2)∣Step:{energy.toFixed(2)} | Step:energy.toFixed(2)∣Step:{globalStep}`; }, 1500);
+                    } else if (roll < 0.7 && memoryBank.length > 0) {
+                        const snapshot = memoryBank[Math.floor(Math.random() * memoryBank.length)];
+                        currentRoot = snapshot.root;
+                        currentMode = snapshot.mode;
+                        layers.forEach((l, i) => {
+                            l.cycleLength = snapshot.cells[i].len;
+                            l.cell = [...snapshot.cells[i].notes];
+                        });
+                        statusEl.innerHTML = `<span class="event-flash">EVENT: Recalling Memory...</span>`;
+                        setTimeout(() => { statusEl.innerText = `Root: currentRoot∣Mode:{currentRoot} | Mode:currentRoot∣Mode:{currentMode} | Energy: energy.toFixed(2)∣Step:{energy.toFixed(2)} | Step:energy.toFixed(2)∣Step:{globalStep}`; }, 1500);
+                    } else if (Math.random() < 0.3) {
+                        memoryBank.push({
+                            root: currentRoot,
+                            mode: currentMode,
+                            cells: layers.map(l => ({ len: l.cycleLength, notes: [...l.cell] }))
+                        });
+                        if (memoryBank.length > 10) memoryBank.shift();
+                    }
+                }
+
+                layers.forEach(layer => {
+                    const rhythmDivisor = layer.role === 'bass' ? 4 : layer.role === 'mid' ? 2 : 1;
+                    if (globalStep % rhythmDivisor === 0) {
+                        layer.play(globalStep, now, energy);
+                    }
+                });
+
+                if (!document.querySelector('.event-flash')) {
+                    document.getElementById('status').innerText = `Root: currentRoot∣Mode:{currentRoot} | Mode:currentRoot∣Mode:{currentMode} | Energy: energy.toFixed(2)∣Stability:{energy.toFixed(2)} | Stability:energy.toFixed(2)∣Stability:{stepsSinceLastMutation}`;
+                }
+                globalStep++;
+            }, 200);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            startEngine();
+            document.getElementById('startBtn').innerText = "Composition Running...";
+            document.getElementById('startBtn').disabled = true;
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Glass - Entropy Engine</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { text-align: center; background: #161625; padding: 40px; border-radius: 30px; border: 1px solid #2a2a4a; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        h1 { font-weight: 300; letter-spacing: 4px; color: #b8c0ff; margin-bottom: 10px; }
+        p { color: #666; margin-bottom: 30px; font-style: italic; }
+        button { padding: 20px 40px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 50px; font-weight: bold; color: #0a0a12; font-size: 1.2em; transition: 0.3s; }
+        button:hover { background: #fff; transform: scale(1.05); }
+        #status { margin-top: 30px; font-family: monospace; color: #555; font-size: 0.9em; }
+        .event-flash { color: #ffb8ff !important; font-weight: bold; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>ENTROPIC GLASS</h1>
+        <p>Cellular modules with stochastic disruption</p>
+        <button id="startBtn">Begin Composition</button>
+        <div id="status">Silence...</div>
+    </div>
+
+    <script>
+        let ctx, inst, activeNotes = [];
+        let isPlaying = false;
+        let globalStep = 0;
+        let currentRoot = 48;
+
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            for (let n = 1; n <= 12; n++) {
+                for (let d = 1; d <= 12; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError;
+        }
+
+        function findConsonantNote(role, root) {
+            const roles = {
+                bass: { min: 36, max: 48 },
+                mid: { min: 48, max: 72 },
+                high: { min: 60, max: 84 }
+            };
+            const cfg = roles[role];
+            const rootFreq = Instrument.midiToFrequency(root);
+            
+            let bestNote = 60, lowestScore = Infinity;
+            for (let i = 0; i < 50; i++) {
+                const candidate = Math.floor(Math.random() * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                let score = getConsonanceScore(candidateFreq, rootFreq);
+                if (score < 0.001) score += 0.02; // Avoid absolute attractor of the octave
+                if (score < lowestScore) {
+                    lowestScore = score;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        class Layer {
+            constructor(role, cycleLength, volume, duration) {
+                this.role = role;
+                this.cycleLength = cycleLength;
+                this.volume = volume;
+                this.duration = duration;
+                this.cell = [];
+                this.initCell();
+            }
+
+            initCell() {
+                this.cell = [];
+                for (let i = 0; i < this.cycleLength; i++) {
+                    this.cell.push(findConsonantNote(this.role, currentRoot));
+                }
+            }
+
+            evolve(globalRoot, forceAll = false) {
+                const rootFreq = Instrument.midiToFrequency(globalRoot);
+                this.cell = this.cell.map(note => {
+                    if (forceAll) return findConsonantNote(this.role, globalRoot);
+                    const noteFreq = Instrument.midiToFrequency(note);
+                    return getConsonanceScore(noteFreq, rootFreq) > 0.06 ? findConsonantNote(this.role, globalRoot) : note;
+                });
+            }
+
+            play(step, now) {
+                const noteIdx = step % this.cycleLength;
+                const note = this.cell[noteIdx];
+                inst.play(note, this.volume, 4000);
+                activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: this.duration });
+            }
+        }
+
+        async function startEngine() {
+            if (!ctx) {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                inst = new FeltPiano(ctx);
+            }
+
+            isPlaying = true;
+            const layers = [
+                new Layer('bass', 8, 0.4, 4),
+                new Layer('mid', 5, 0.2, 2),
+                new Layer('high', 7, 0.15, 1)
+            ];
+
+            setInterval(() => {
+                if (!isPlaying) return;
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                // --- THE ENTROPY ENGINE ---
+                // Every 32 steps, there is a 10% chance of a "Wild Card" event
+                if (globalStep % 32 === 0 && Math.random() < 0.5) {
+                    const eventType = Math.floor(Math.random() * 3);
+                    const statusEl = document.getElementById('status');
+                    
+                    if (eventType === 0) {
+                        // EVENT: Harmonic Leap (Sudden new Root)
+                        currentRoot += (Math.random() > 0.5 ? 5 : -5); 
+                        if (currentRoot < 36 || currentRoot > 60) currentRoot = 48;
+                        layers.forEach(l => l.evolve(currentRoot, true));
+                        statusEl.innerHTML = `<span class="event-flash">EVENT: Harmonic Leap!</span>`;
+                    } else if (eventType === 1) {
+                        // EVENT: Cell Shatter (Pick one layer to completely regenerate)
+                        const target = layers[Math.floor(Math.random() * layers.length)];
+                        target.initCell();
+                        statusEl.innerHTML = `<span class="event-flash">EVENT: Cell Shattered (${target.role})!</span>`;
+                    } else {
+                        // EVENT: Phase Shift (Change cycle length of a layer temporarily)
+                        const target = layers[Math.floor(Math.random() * layers.length)];
+                        target.cycleLength = [3, 4, 5, 6, 7, 8, 9][Math.floor(Math.random() * 7)];
+                        target.initCell();
+                        statusEl.innerHTML = `<span class="event-flash">EVENT: Phase Shift (${target.role})!</span>`;
+                    }
+                    
+                    // Clear flash after 2 seconds
+                    setTimeout(() => {
+                        statusEl.innerText = `Root: currentRoot∣Step:{currentRoot} | Step:currentRoot∣Step:{globalStep} | Phasing Cells: ${layers.map(l=>l.cycleLength).join(', ')}`;
+                    }, 2000);
+                }
+
+                // Standard subtle drift
+                if (globalStep % 128 === 0 && globalStep !== 0) {
+                    currentRoot += (Math.random() > 0.5 ? 1 : -1);
+                    layers.forEach(l => l.evolve(currentRoot));
+                }
+
+                layers.forEach(layer => {
+                    const rhythmDivisor = layer.role === 'bass' ? 4 : layer.role === 'mid' ? 2 : 1;
+                    if (globalStep % rhythmDivisor === 0) {
+                        layer.play(globalStep, now);
+                    }
+                });
+
+                if (!document.querySelector('.event-flash')) {
+                    document.getElementById('status').innerText = `Root: currentRoot∣Step:{currentRoot} | Step:currentRoot∣Step:{globalStep} | Phasing Cells: ${layers.map(l=>l.cycleLength).join(', ')}`;
+                }
+                globalStep++;
+            }, 200);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            startEngine();
+            document.getElementById('startBtn').innerText = "Composition Running...";
+            document.getElementById('startBtn').disabled = true;
+        });
+    </script>
+</body>
+</html>

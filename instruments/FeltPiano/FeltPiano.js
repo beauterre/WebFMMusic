@@ -5,29 +5,20 @@ class FeltPiano extends Instrument {
         super(audioContext);
         this.name = "FeltPiano v2025-04-28-Scheduled";
         this.audioContext = audioContext;
-        
-        // Map voor actieve noten (voor het geval dat we een noot voortijdig willen stoppen)
         this.activeNotes = new Map();
         
-        // Global Low Pass Filter voor de "felt" dofheid
         this.mainFilter = this.audioContext.createBiquadFilter();
         this.mainFilter.type = "lowpass";
-        this.mainFilter.frequency.setValueAtTime(1800, this.audioContext.currentTime);
+        this.mainFilter.frequency.setValueAtTime(1200, this.audioContext.currentTime);
         this.mainFilter.Q.setValueAtTime(0.7, this.audioContext.currentTime);
-        this.mainFilter.connect(this.audioContext.destination);
+        this.mainFilter.connect(this.channel);
     }
 
-    /**
-     * @param {number} note - MIDI noot
-     * @param {number} vol - Volume (0-1)
-     * @param {number} duration - Duur in milliseconden
-     */
-    play(note, vol, duration = 2000) {
-        const now = this.audioContext.currentTime;
-        const freq = Instrument.midiToFrequency(note);
+    play(note, vol, duration = 2000, startTime = null) {
+        const now = startTime !== null ? startTime : this.audioContext.currentTime;
+        const freq = Instrument.midiToFrequency(note, this.scaleMap, this.basePitch);
         const durSeconds = duration / 1000;
 
-        // 1. OSCILLATORS
         const carrier = this.audioContext.createOscillator();
         carrier.type = "sine";
         carrier.frequency.setValueAtTime(freq, now);
@@ -39,42 +30,40 @@ class FeltPiano extends Instrument {
         const modGain = this.audioContext.createGain();
         const carrierGain = this.audioContext.createGain();
         
-        // 2. ROUTING
         modulator.connect(modGain);
-        modGain.connect(carrier.frequency);
+        modGain.connect(carrier.frequency); 
         carrier.connect(carrierGain);
         carrierGain.connect(this.mainFilter);
 
-        // 3. ENVELOPES
-        const attack = 0.02;
-        const release = 0.4; // De natuurlijke "uitstervings-tijd" van de snaar
+        const attack = 0.01; 
+        const release = 0.3;
 
-        // Modulator Envelope: Korte piek (hamer) -> doffe toon
         modGain.gain.setValueAtTime(0, now);
-        modGain.gain.linearRampToValueAtTime(freq * 1.5, now + attack); 
-        modGain.gain.exponentialRampToValueAtTime(freq * 0.05, now + 0.1);
+        modGain.gain.linearRampToValueAtTime(freq * 0.5, now + attack); 
+        modGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
 
-        // Amplitude Envelope: 
-        // Start zacht -> Peak -> Hold tot duration -> Release
         carrierGain.gain.setValueAtTime(0, now);
         carrierGain.gain.linearRampToValueAtTime(vol * 0.6, now + attack);
         
-        // Houd de noot vast tot de duration is bereikt
-        carrierGain.gain.setValueAtTime(vol * 0.6, now + durSeconds);
+        // FIX: Ensure the ramps don't overlap. 
+        // We go from peak -> slight drop -> final decay.
+        if(durSeconds >= 0.1) {
+            carrierGain.gain.exponentialRampToValueAtTime(vol * 0.1, now + 0.1);
+            carrierGain.gain.exponentialRampToValueAtTime(0.001, now + durSeconds);
+        } else {
+            carrierGain.gain.exponentialRampToValueAtTime(0.001, now + durSeconds);
+        }
         
-        // Start de release fase (het vilt dat de snaar dempt)
-        carrierGain.gain.exponentialRampToValueAtTime(0.001, now + durSeconds + release);
+        carrierGain.gain.setValueAtTime(0.001, now + durSeconds);
+        carrierGain.gain.exponentialRampToValueAtTime(0.0001, now + durSeconds + release);
 
-        // 4. SCHEDULING
         carrier.start(now);
         modulator.start(now);
         
-        // Stop de oscillators definitief na de volledige duration + release
         const finalStopTime = now + durSeconds + release;
         carrier.stop(finalStopTime);
         modulator.stop(finalStopTime);
 
-        // Sla op in map voor eventuele externe stop() calls
         this.activeNotes.set(note, {
             carrier: carrier,
             modulator: modulator,
@@ -82,7 +71,6 @@ class FeltPiano extends Instrument {
             stopTime: finalStopTime
         });
 
-        // Opschonen van de map zodra de noot klaar is
         setTimeout(() => {
             if (this.activeNotes.get(note)?.stopTime === finalStopTime) {
                 this.activeNotes.delete(note);
@@ -90,19 +78,32 @@ class FeltPiano extends Instrument {
         }, (durSeconds + release) * 1000 + 100);
     }
 
-    // Optioneel: forceer stop van een noot (bijv. bij een plotselinge harmoniewissel)
     stop(note) {
         if (!this.activeNotes.has(note)) return;
-
+        
         const now = this.audioContext.currentTime;
         const { carrier, modulator, gain } = this.activeNotes.get(note);
 
+        // FIX: Use cancelScheduledValues and then a very fast ramp to 0.
+        // Since we can't easily get the current value of a ramp, 
+        // we use a very short linear ramp to "catch" the current sound 
+        // and then a fast exponential fade to kill it.
+        
         gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+        
+        // We set the value to exactly what it is NOW to prevent the "pop" or "jump"
+        // If cancelAndHoldAtTime is available (modern browsers), it's better.
+        if (gain.gain.cancelAndHoldAtTime) {
+            gain.gain.cancelAndHoldAtTime(now);
+        } else {
+            // Fallback for older browsers: just set it to current value
+            gain.gain.setValueAtTime(gain.gain.value, now);
+        }
+        
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
 
-        carrier.stop(now + 0.3);
-        modulator.stop(now + 0.3);
+        carrier.stop(now + 0.1);
+        modulator.stop(now + 0.1);
         this.activeNotes.delete(note);
     }
 }

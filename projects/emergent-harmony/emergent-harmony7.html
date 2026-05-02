@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-er">
+    <title>Emergent Harmony Lab</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { background: #161625; padding: 30px; border-radius: 20px; text-align: center; border: 1px solid #2a2a4a; box-shadow: 0 10px 30px rgba(0,0,0,0.7); width: 400px; }
+        h1 { color: #b8c0ff; font-weight: lighter; margin-bottom: 20px; }
+        .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: left; margin-bottom: 25px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; }
+        label { font-size: 0.8em; color: #888; display: block; margin-bottom: 5px; }
+        input { width: 80%; background: #0a0a12; border: 1px solid #333; color: #fff; padding: 5px; border-radius: 4px; }
+        button { padding: 12px 24px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 8px; font-weight: bold; color: #0a0a12; transition: 0.3s; width: 100%; }
+        button:hover { background: #a0a8ff; transform: scale(1.02); }
+        #status { margin-top: 20px; font-family: monospace; color: #b8c0ff; font-size: 0.9em; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>Harmony Lab</h1>
+        
+        <div class="settings">
+            <div>
+                <label>TET (Divisions)</label>
+                <input id="tet-input" type="number" value="31">
+            </div>
+            <div>
+                <label>Search Depth</label>
+                <input id="search-input" type="number" value="50">
+            </div>
+        </div>
+
+        <button id="startBtn">Begin Evolution</button>
+        <div id="status">System: Idle</div>
+    </div>
+
+    <script>
+        let ctx, inst, activeNotes = [];
+        
+        // Global tuning is updated via the inputs
+        window.GlobalTuning = {
+            basePitch: 440,
+            tet: 31 
+        };
+
+        const roles = {
+            bass: { min: 30, max: 45 },
+            harmony: { min: 45, max: 65 },
+            melody: { min: 65, max: 90 }
+        };
+
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            // Search for simple integer ratios up to 12 for high-fidelity consonance
+            for (let n = 1; n <= 12; n++) {
+                for (let d = 1; d <= 12; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError;
+        }
+
+        function findBestNote(role) {
+            const cfg = roles[role];
+            const searchDepth = parseInt(document.getElementById('search-input').value) || 20;
+            
+            let bestNote = 60, lowestError = Infinity;
+
+            for (let i = 0; i < searchDepth; i++) {
+                const candidate = Math.floor(Math.random() * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                let totalError = 0;
+                activeNotes.forEach(n => {
+                    totalError += getConsonanceScore(candidateFreq, n.freq);
+                });
+
+                if (totalError < lowestError) {
+                    lowestError = totalError;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        async function init() {
+            ctx = new (window.AudioContext || window.webkitAudioContext)();
+            inst = new FeltPiano(ctx);
+            
+            let step = 0;
+            setInterval(() => {
+                // Update global TET from input in real-time
+                window.GlobalTuning.tet = parseInt(document.getElementById('tet-input').value) || 12;
+                
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                if (step % 16 === 0) {
+                    const note = findBestNote('bass');
+                    inst.play(note, 0.4, 8000);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 8 });
+                }
+
+                if (step % 8 === 0) {
+                    const notes = [];
+                    for(let i=0; i<3; i++) {
+                        const n = findBestNote('harmony');
+                        notes.push(n);
+                    }
+                    notes.forEach((n, i) => {
+                        const startOffset = i * 0.3;
+                        inst.play(n, 0.2, 4000, now + startOffset);
+                        setTimeout(() => {
+                            activeNotes.push({ freq: Instrument.midiToFrequency(n), startTime: now + startOffset, duration: 4 });
+                        }, startOffset * 1000);
+                    });
+                }
+
+                if ([3, 4, 6, 8].some(d => step % d === 0) && Math.random() > 0.3) {
+                    const note = findBestNote('melody');
+                    inst.play(note, 0.3, 1500);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 1.5 });
+                }
+
+                document.getElementById('status').innerText = `Step: step∣Active:{step} | Active:step∣Active:{activeNotes.length} | TET: ${window.GlobalTuning.tet}`;
+                step++;
+            }, 250);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startBtn').style.display = 'none';
+            init();
+        });
+    </script>
+</body>
+</html>

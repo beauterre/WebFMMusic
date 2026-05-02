@@ -3,12 +3,13 @@ console.log("Instrument Loaded: SereneBells v2026-05-02-145:38");
 class SereneBells extends Instrument {
     constructor(audioContext) {
         super(audioContext);
+        console.log("Serenebells has audioContext: " + audioContext);
         this.name = "SereneBells v2026-05-02-145:38";
         this.audioContext = audioContext;
         this.beatmin = 0.5;
         this.beatmax = 8;
         
-        // NEW: Map to track active notes for stop() capacity
+        // Added for the new testbed stop capacity
         this.activeNotes = new Map();
     }
 
@@ -16,9 +17,11 @@ class SereneBells extends Instrument {
     setBeatMax(nr) { this.beatmax = nr; }
     getBeat() { return Math.random() * (this.beatmax - this.beatmin) + this.beatmin; }
 
-    play(note, vol, decay = 10000) {
-        const now = this.audioContext.currentTime;
-        
+    // ADDED: startTime parameter for offline rendering
+    play(note, vol, decay = 10000, startTime = null) {
+        // USE THIS instead of this.audioContext.currentTime everywhere below
+        const now = startTime !== null ? startTime : this.audioContext.currentTime;
+
         var o1 = this.audioContext.createOscillator();
         var o2 = this.audioContext.createOscillator();
         var o3 = this.audioContext.createOscillator();
@@ -49,6 +52,7 @@ class SereneBells extends Instrument {
         panner2.connect(vol1);
         panner2.connect(vol2);
 
+        // ORIGINAL LOGIC - Now using 'now'
         vol1.gain.linearRampToValueAtTime(0, now + reactiontime);
         vol2.gain.linearRampToValueAtTime(0, now + reactiontime);
         masterVolume.gain.linearRampToValueAtTime(0, now + reactiontime);
@@ -60,11 +64,13 @@ class SereneBells extends Instrument {
 
         var attack = 5;
         var freq = Instrument.midiToFrequency(note) + Math.random();
+
         panner1.pan.setValueAtTime(panPosition, now + reactiontime);
         panner2.pan.setValueAtTime(-panPosition, now + reactiontime);
 
         var freq1 = freq;
         var freq2 = freq + this.getBeat();
+        
         o1.frequency.linearRampToValueAtTime(freq, now);
         o2.frequency.linearRampToValueAtTime(freq2, now);
         var freqdif = 0.500 / Math.abs(freq2 - freq1);
@@ -80,31 +86,31 @@ class SereneBells extends Instrument {
         vol1.gain.linearRampToValueAtTime(4 / voldim, now + reactiontime * 2 + (attack + decay / 3) / 1000);
         
         var duration = (attack + decay) / 1000;
-        var fixedDuration1 = Math.round(duration * (freq1 * 2)) / (freq1 * 2);
-        vol1.gain.linearRampToValueAtTime(0.0001, now + reactiontime * 2 + fixedDuration1);
+        var fixedDuration = Math.round(duration * (freq1 * 2)) / (freq1 * 2);
+        vol1.gain.linearRampToValueAtTime(0.0001, now + reactiontime * 2 + fixedDuration);
 
         vol2.gain.linearRampToValueAtTime(15 / voldim, now + reactiontime * 2 + attack / 1000);
         vol2.gain.linearRampToValueAtTime(2 / voldim, now + reactiontime * 2 + (attack + decay / 4) / 1000);
 
         masterVolume.gain.linearRampToValueAtTime(1, now + reactiontime * 2 + freqdif);
 
-        o1.stop(now + reactiontime + fixedDuration1);
-        o3.stop(now + reactiontime + fixedDuration1);
+        o1.stop(now + reactiontime + fixedDuration);
+        o3.stop(now + reactiontime + fixedDuration);
 
-        var fixedDuration2 = Math.round(duration * (freq2 * 2)) / (freq2 * 2);
-        vol2.gain.linearRampToValueAtTime(0.0001, now + reactiontime * 2 + fixedDuration2);
-        o2.stop(now + reactiontime + fixedDuration2);
-        o4.stop(now + reactiontime + fixedDuration2);
+        fixedDuration = Math.round(duration * (freq2 * 2)) / (freq2 * 2);
+        vol2.gain.linearRampToValueAtTime(0.0001, now + reactiontime * 2 + fixedDuration);
 
-        // --- NEW: Store for stop() capacity ---
-        const finalStopTime = now + reactiontime + Math.max(fixedDuration1, fixedDuration2);
+        o2.stop(now + reactiontime + fixedDuration);
+        o4.stop(now + reactiontime + fixedDuration);
+
+        // Tracking for stop() capacity
+        const finalStopTime = now + reactiontime + Math.max(fixedDuration, 0.1); 
         this.activeNotes.set(note, {
             oscillators: [o1, o2, o3, o4],
             gains: [vol1, vol2, masterVolume],
             stopTime: finalStopTime
         });
 
-        // Cleanup map when sound is finished
         setTimeout(() => {
             if (this.activeNotes.get(note)?.stopTime === finalStopTime) {
                 this.activeNotes.delete(note);
@@ -115,28 +121,22 @@ class SereneBells extends Instrument {
         document.dispatchEvent(bellEvent);
     }
 
-    // NEW: Stop method to force release of a note
+    // Added to prevent errors in the Master Testbed
     stop(note) {
         if (!this.activeNotes.has(note)) return;
-
         const now = this.audioContext.currentTime;
         const { oscillators, gains } = this.activeNotes.get(note);
-
-        // Fade out all gain nodes associated with this note
         gains.forEach(g => {
             g.gain.cancelScheduledValues(now);
             g.gain.setValueAtTime(g.gain.value, now);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
         });
-
-        // Stop all oscillators after the fade
-        oscillators.forEach(o => {
-            try { o.stop(now + 0.3); } catch(e) {} 
-        });
-
+        oscillators.forEach(o => { try { o.stop(now + 0.2); } catch(e) {} });
         this.activeNotes.delete(note);
     }
 }
 
 window["TAG"].instruments.push(SereneBells);
 console.log("Instrument Loaded: " + window["TAG"].instruments[window["TAG"].instruments.length - 1].name);
+
+

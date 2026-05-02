@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Composer</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .controls { background: #161625; padding: 20px; border-radius: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; border: 1px solid #2a2a4a; width: 800px; }
+        .ctrl-item { display: flex; flex-direction: column; }
+        label { font-size: 0.8em; color: #888; margin-bottom: 5px; }
+        input { background: #0a0a12; border: 1px solid #333; color: #fff; padding: 8px; border-radius: 5px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px; width: 900px; }
+        .block { background: #1b1b32; border: 2px solid #2a2a4a; border-radius: 10px; padding: 10px; text-align: center; transition: 0.3s; }
+        .block.active { border-color: #b8c0ff; background: #25254d; box-shadow: 0 0 15px rgba(184, 192, 255, 0.3); }
+        .block input { width: 80%; text-align: center; font-family: monospace; margin-top: 10px; }
+        .block-id { font-size: 0.7em; color: #666; margin-bottom: 5px; }
+        
+        button { padding: 12px 24px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 8px; font-weight: bold; color: #0a0a12; transition: 0.3s; width: 100%; margin-top: 10px; }
+        button:hover { background: #a0a8ff; }
+        #status { margin-top: 20px; font-family: monospace; color: #b8c0ff; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <h1>Emergent Composer</h1>
+    
+    <div class="controls">
+        <div class="ctrl-item">
+            <label>TET Division</label>
+            <input id="tet-input" type="number" value="31">
+        </div>
+        <div class="ctrl-item">
+            <label>Search Depth</label>
+            <input id="search-input" type="number" value="50">
+        </div>
+        <div class="ctrl-item">
+            <label>Num Blocks</label>
+            <input id="num-blocks" type="number" value="16">
+        </div>
+        <div class="ctrl-item">
+            <label>Action</label>
+            <button id="initBtn">Initialize Composition</button>
+        </div>
+    </div>
+
+    <div id="grid" class="grid"></div>
+    <div id="status">Ready to compose...</div>
+
+  <script>
+        let ctx, inst, activeNotes = [];
+        let currentBlockIndex = -1;
+        let isPlaying = false;
+
+        function sRandom(seed) {
+            var x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            for (let n = 1; n <= 12; n++) {
+                for (let d = 1; d <= 12; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError;
+        }
+
+        function findBestNote(role, seed) {
+            const roles = {
+                bass: { min: 30, max: 45 },
+                harmony: { min: 45, max: 65 },
+                melody: { min: 65, max: 90 }
+            };
+            const cfg = roles[role];
+            const searchDepth = parseInt(document.getElementById('search-input').value) || 20;
+            
+            let bestNote = 60, lowestError = Infinity;
+
+            for (let i = 0; i < searchDepth; i++) {
+                const candidate = Math.floor(sRandom(seed + i) * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                let totalError = 0;
+                activeNotes.forEach(n => {
+                    totalError += getConsonanceScore(candidateFreq, n.freq);
+                });
+
+                if (totalError < lowestError) {
+                    lowestError = totalError;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        function createGrid() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            const count = parseInt(document.getElementById('num-blocks').value) || 16;
+
+            for (let i = 0; i < count; i++) {
+                const block = document.createElement('div');
+                block.className = 'block';
+                block.id = `block-${i}`;
+                
+                const label = document.createElement('div');
+                label.className = 'block-id';
+                label.innerText = `Block ${i}`;
+                
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'seed-input';
+                // Assign the number directly to the value property to avoid parsing errors
+                input.value = Math.floor(Math.random() * 10000);
+                input.dataset.index = i;
+
+                block.appendChild(label);
+                block.appendChild(input);
+                grid.appendChild(block);
+            }
+        }
+
+        async function startEngine() {
+            if (!ctx) {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                inst = new FeltPiano(ctx);
+            }
+
+            isPlaying = true;
+            let step = 0;
+            
+            setInterval(() => {
+                if (!isPlaying) return;
+                
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                window.GlobalTuning = {
+                    basePitch: 440,
+                    tet: parseInt(document.getElementById('tet-input').value) || 12
+                };
+
+                currentBlockIndex = Math.floor(step / 8); 
+                const blockElements = document.querySelectorAll('.block');
+                blockElements.forEach((b, i) => {
+                    b.classList.toggle('active', i === currentBlockIndex);
+                });
+
+                const seedInput = document.querySelector(`.block[id="block-${currentBlockIndex}"] .seed-input`);
+                // Ensure we have a valid number, default to 0 if NaN
+                let blockSeed = seedInput ? parseInt(seedInput.value) : 0;
+                if (isNaN(blockSeed)) blockSeed = 0; 
+                
+                const currentSeed = blockSeed + step;
+
+                if (step % 16 === 0) {
+                    const note = findBestNote('bass', currentSeed);
+                    inst.play(note, 0.4, 8000);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 8 });
+                }
+
+                if (step % 8 === 0) {
+                    for(let i=0; i<3; i++) {
+                        const n = findBestNote('harmony', currentSeed + i + 10);
+                        const offset = i * 0.3;
+                        inst.play(n, 0.2, 4000, now + offset);
+                        setTimeout(() => {
+                            activeNotes.push({ freq: Instrument.midiToFrequency(n), startTime: now + offset, duration: 4 });
+                        }, offset * 1000);
+                    }
+                }
+
+                if ([3, 4, 6, 8].some(d => step % d === 0) && Math.random() > 0.3) {
+                    const note = findBestNote('melody', currentSeed + 50);
+                    inst.play(note, 0.3, 1500);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 1.5 });
+                }
+
+                document.getElementById('status').innerText = `Block: currentBlockIndex∣Seed:{currentBlockIndex} | Seed:currentBlockIndex∣Seed:{blockSeed} | Step: ${step}`;
+                step++;
+            }, 250);
+        }
+
+        document.getElementById('initBtn').addEventListener('click', () => {
+            createGrid();
+            startEngine();
+            document.getElementById('initBtn').innerText = "Restarting...";
+            setTimeout(() => { document.getElementById('initBtn').innerText = "Re-Initialize"; }, 1000);
+        });
+    </script>
+</body>
+</html>

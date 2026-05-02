@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Harmony - 39TET Edition</title>
+    <style>
+        body { font-family: sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { background: #161625; padding: 30px; border-radius: 20px; text-align: center; border: 1px solid #2a2a4a; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+        h1 { color: #b8c0ff; font-weight: lighter; }
+        button { padding: 12px 24px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 8px; font-weight: bold; color: #0a0a12; transition: 0.3s; }
+        button:hover { background: #a0a8ff; transform: scale(1.05); }
+        #status { margin-top: 20px; font-family: monospace; color: #b8c0ff; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>Emergent 39-TET</h1>
+        <p>Searching for consonance in a 39-tone octave</p>
+        <button id="startBtn">Begin Evolution</button>
+        <div id="status">System: Idle</div>
+    </div>
+
+    <script>
+        // 1. SET THE GLOBAL TUNING TO 39-TET
+        window.GlobalTuning = {
+            basePitch: 440,
+            tet: 39 
+        };
+
+        let ctx, inst, activeNotes = [];
+        const roles = {
+            bass: { min: 30, max: 45 },
+            harmony: { min: 45, max: 65 },
+            melody: { min: 65, max: 90 }
+        };
+
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            // Check integer ratios up to 10 for a richer harmonic search in 39TET
+            for (let n = 1; n <= 10; n++) {
+                for (let d = 1; d <= 10; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError;
+        }
+
+        function findBestNote(role) {
+            const cfg = roles[role];
+            let bestNote = 60, lowestError = Infinity;
+
+            for (let i = 0; i < 20; i++) { // Increased candidates for the denser 39TET space
+                const candidate = Math.floor(Math.random() * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                let totalError = 0;
+                activeNotes.forEach(n => {
+                    totalError += getConsonanceScore(candidateFreq, n.freq);
+                });
+
+                if (totalError < lowestError) {
+                    lowestError = totalError;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        async function init() {
+            ctx = new (window.AudioContext || window.webkitAudioContext)();
+            inst = new FeltPiano(ctx);
+            
+            let step = 0;
+            setInterval(() => {
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                if (step % 16 === 0) {
+                    const note = findBestNote('bass');
+                    inst.play(note, 0.4, 8000);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 8 });
+                }
+
+                if (step % 8 === 0) {
+                    const notes = [];
+                    for(let i=0; i<3; i++) {
+                        const n = findBestNote('harmony');
+                        notes.push(n);
+                    }
+                    notes.forEach((n, i) => {
+                        const startOffset = i * 0.3;
+                        inst.play(n, 0.2, 4000, now + startOffset);
+                        setTimeout(() => {
+                            activeNotes.push({ freq: Instrument.midiToFrequency(n), startTime: now + startOffset, duration: 4 });
+                        }, startOffset * 1000);
+                    });
+                }
+
+                if ([3, 4, 6, 8].some(d => step % d === 0) && Math.random() > 0.3) {
+                    const note = findBestNote('melody');
+                    inst.play(note, 0.3, 1500);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 1.5 });
+                }
+
+                document.getElementById('status').innerText = `Step: step∣Active:{step} | Active:step∣Active:{activeNotes.length} | Tuning: 39-TET`;
+                step++;
+            }, 250);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startBtn').style.display = 'none';
+            init();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergent Composer - 12TET Structure</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a12; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .controls { background: #161625; padding: 20px; border-radius: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; border: 1px solid #2a2a4a; width: 800px; }
+        .ctrl-item { display: flex; flex-direction: column; }
+        label { font-size: 0.8em; color: #888; margin-bottom: 5px; }
+        input { background: #0a0a12; border: 1px solid #333; color: #fff; padding: 8px; border-radius: 5px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; width: 900px; }
+        .block { background: #1b1b32; border: 2px solid #2a2a4a; border-radius: 10px; padding: 12px; text-align: center; transition: 0.3s; display: flex; flex-direction: column; gap: 8px; }
+        .block.active { border-color: #b8c0ff; background: #25254d; box-shadow: 0 0 15px rgba(184, 192, 255, 0.3); }
+        .block input { width: 90%; text-align: center; font-family: monospace; }
+        .block-id { font-size: 0.7em; color: #666; margin-bottom: 2px; }
+        .block-label { font-size: 0.6em; color: #444; text-transform: uppercase; margin-top: 4px; }
+        button { padding: 12px 24px; cursor: pointer; background: #b8c0ff; border: none; border-radius: 8px; font-weight: bold; color: #0a0a12; transition: 0.3s; width: 100%; margin-top: 10px; }
+        button:hover { background: #a0a8ff; }
+        #status { margin-top: 20px; font-family: monospace; color: #b8c0ff; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+</head>
+<body>
+    <h1>Emergent Composer</h1>
+    <div class="controls">
+        <div class="ctrl-item">
+            <label>Tuning</label>
+            <input id="tet-input" type="number" value="12" readonly>
+        </div>
+        <div class="ctrl-item">
+            <label>Global Search Depth</label>
+            <input id="search-input" type="number" value="100">
+        </div>
+        <div class="ctrl-item">
+            <label>Num Blocks</label>
+            <input id="num-blocks" type="number" value="16">
+        </div>
+        <div class="ctrl-item">
+            <label>Action</label>
+            <button id="initBtn">Initialize Composition</button>
+        </div>
+    </div>
+    <div id="grid" class="grid"></div>
+    <div id="status">Ready to compose...</div>
+
+    <script>
+        let ctx, inst, activeNotes = [];
+        let lastMelodyNote = 60;
+        let currentBlockIndex = -1;
+        let isPlaying = false;
+
+        function sRandom(seed) {
+            var x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        function getConsonanceScore(freq1, freq2) {
+            const ratio = freq1 / freq2;
+            let bestError = Infinity;
+            for (let n = 1; n <= 12; n++) {
+                for (let d = 1; d <= 12; d++) {
+                    const simpleRatio = n / d;
+                    const error = Math.abs(ratio - simpleRatio);
+                    if (error < bestError) bestError = error;
+                }
+            }
+            return bestError;
+        }
+
+        function findBestNote(role, seed, cohesionFactor, blockRoot) {
+            const roles = {
+                bass: { min: 36, max: 48 },    // Octave 2-3
+                harmony: { min: 48, max: 72 }, // Octave 3-5
+                melody: { min: 60, max: 84 }   // Octave 4-6
+            };
+            const cfg = roles[role];
+            const globalDepth = parseInt(document.getElementById('search-input').value) || 50;
+            const searchDepth = Math.max(1, Math.floor(globalDepth * cohesionFactor));
+            
+            let bestNote = 60, lowestScore = Infinity;
+            const rootFreq = Instrument.midiToFrequency(blockRoot);
+
+            for (let i = 0; i < searchDepth; i++) {
+                const candidate = Math.floor(sRandom(seed + i) * (cfg.max - cfg.min + 1)) + cfg.min;
+                const candidateFreq = Instrument.midiToFrequency(candidate);
+                
+                // 1. Vertical Consonance (current playing notes)
+                let verticalError = 0;
+                activeNotes.forEach(n => { verticalError += getConsonanceScore(candidateFreq, n.freq); });
+                if (activeNotes.length === 0) verticalError = 0; else verticalError /= activeNotes.length;
+
+                // 2. Anchor Consonance (Relation to the Block's Root)
+                const anchorError = getConsonanceScore(candidateFreq, rootFreq);
+
+                // 3. Horizontal Logic (Melody Trajectory)
+                // Prefer notes within an octave of the last note to avoid wild jumps
+                const jumpDistance = Math.abs(candidate - lastMelodyNote);
+                const trajectoryError = jumpDistance > 12 ? (jumpDistance - 12) * 0.01 : 0;
+
+                // Combined Scoring
+                // Bass cares more about the Root. Melody cares more about the Active Notes and Trajectory.
+                let totalScore = 0;
+                if (role === 'bass') {
+                    totalScore = (anchorError * 0.8) + (verticalError * 0.2);
+                } else if (role === 'melody') {
+                    totalScore = (verticalError * 0.5) + (anchorError * 0.3) + trajectoryError;
+                } else {
+                    totalScore = (verticalError * 0.4) + (anchorError * 0.6);
+                }
+
+                if (totalScore < lowestScore) {
+                    lowestScore = totalScore;
+                    bestNote = candidate;
+                }
+            }
+            return bestNote;
+        }
+
+        function createGrid() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            const count = parseInt(document.getElementById('num-blocks').value) || 16;
+
+            for (let i = 0; i < count; i++) {
+                const block = document.createElement('div');
+                block.className = 'block';
+                block.id = `block-${i}`;
+                
+                const label = document.createElement('div');
+                label.className = 'block-id';
+                label.innerText = `Block ${i}`;
+                
+                // Seed Input
+                const seedInput = document.createElement('input');
+                seedInput.type = 'number';
+                seedInput.className = 'seed-input';
+                seedInput.value = Math.floor(Math.random() * 10000);
+                
+                // Root Note Input (MIDI)
+                const rootLabel = document.createElement('div');
+                rootLabel.className = 'block-label';
+                rootLabel.innerText = 'Root (MIDI)';
+                const rootInput = document.createElement('input');
+                rootInput.type = 'number';
+                rootInput.className = 'root-input';
+                // Randomly pick a note from a standard C Major / A Minor palette for better starting point
+                const palette = [48, 50, 52, 53, 55, 57, 59]; 
+                rootInput.value = palette[Math.floor(Math.random() * palette.length)];
+
+                // Cohesion Factor
+                const cohLabel = document.createElement('div');
+                cohLabel.className = 'block-label';
+                cohLabel.innerText = 'Cohesion';
+                const cohInput = document.createElement('input');
+                cohInput.type = 'number';
+                cohInput.className = 'coh-input';
+                cohInput.step = '0.01';
+                cohInput.min = '0.01';
+                cohInput.max = '1.0';
+                cohInput.value = (Math.random() * 0.5 + 0.5).toFixed(2);
+
+                block.appendChild(label);
+                block.appendChild(seedInput);
+                block.appendChild(rootLabel);
+                block.appendChild(rootInput);
+                block.appendChild(cohLabel);
+                block.appendChild(cohInput);
+                grid.appendChild(block);
+            }
+        }
+
+        async function startEngine() {
+            if (!ctx) {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                inst = new FeltPiano(ctx);
+            }
+
+            isPlaying = true;
+            let step = 0;
+            
+            setInterval(() => {
+                if (!isPlaying) return;
+                
+                const now = ctx.currentTime;
+                activeNotes = activeNotes.filter(n => now < n.startTime + n.duration);
+
+                window.GlobalTuning = { basePitch: 440, tet: 12 };
+
+                const numBlocks = parseInt(document.getElementById('num-blocks').value) || 16;
+                currentBlockIndex = Math.floor(step / 8) % numBlocks; 
+
+                const blockElements = document.querySelectorAll('.block');
+                blockElements.forEach((b, i) => {
+                    b.classList.toggle('active', i === currentBlockIndex);
+                });
+
+                const currentBlock = document.querySelector(`.block[id="block-${currentBlockIndex}"]`);
+                const seedInput = currentBlock?.querySelector('.seed-input');
+                const cohInput = currentBlock?.querySelector('.coh-input');
+                const rootInput = currentBlock?.querySelector('.root-input');
+                
+                let blockSeed = seedInput ? parseInt(seedInput.value) : 0;
+                if (isNaN(blockSeed)) blockSeed = 0;
+
+                let cohesionFactor = cohInput ? parseFloat(cohInput.value) : 1.0;
+                if (isNaN(cohesionFactor)) cohesionFactor = 1.0;
+
+                let blockRoot = rootInput ? parseInt(rootInput.value) : 60;
+                if (isNaN(blockRoot)) blockRoot = 60;
+                
+                const currentSeed = blockSeed + step;
+
+                // Bass
+                if (step % 16 === 0) {
+                    const note = findBestNote('bass', currentSeed, cohesionFactor, blockRoot);
+                    inst.play(note, 0.4, 8000);
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 8 });
+                }
+
+                // Harmony
+                if (step % 8 === 0) {
+                    for(let i=0; i<3; i++) {
+                        const n = findBestNote('harmony', currentSeed + i + 10, cohesionFactor, blockRoot);
+                        const offset = i * 0.3;
+                        inst.play(n, 0.2, 4000, now + offset);
+                        setTimeout(() => {
+                            activeNotes.push({ freq: Instrument.midiToFrequency(n), startTime: now + offset, duration: 4 });
+                        }, offset * 1000);
+                    }
+                }
+
+                // Melody
+                if ([3, 4, 6, 8].some(d => step % d === 0) && Math.random() > 0.3) {
+                    const note = findBestNote('melody', currentSeed + 50, cohesionFactor, blockRoot);
+                    inst.play(note, 0.3, 1500);
+                    lastMelodyNote = note; // Store for horizontal logic
+                    activeNotes.push({ freq: Instrument.midiToFrequency(note), startTime: now, duration: 1.5 });
+                }
+
+                document.getElementById('status').innerText = `Block: currentBlockIndex∣Root:{currentBlockIndex} | Root:currentBlockIndex∣Root:{blockRoot} | Seed: blockSeed∣Step:{blockSeed} | Step:blockSeed∣Step:{step}`;
+                step++;
+            }, 250);
+        }
+
+        document.getElementById('initBtn').addEventListener('click', () => {
+            createGrid();
+            startEngine();
+            document.getElementById('initBtn').innerText = "Restarting...";
+            setTimeout(() => { document.getElementById('initBtn').innerText = "Re-Initialize"; }, 1000);
+        });
+    </script>
+</body>
+</html>

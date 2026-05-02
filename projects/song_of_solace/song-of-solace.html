@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Song of Solace - Eternal Flux</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 40px; border-radius: 30px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }
+        h1 { color: #b8c0ff; font-weight: lighter; font-style: italic; }
+        .status-box { margin: 30px 0; padding: 20px; background: rgba(0,0,0,0.4); border-radius: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; text-align: left; font-size: 0.9em; line-height: 1.6; border: 1px solid rgba(184, 192, 255, 0.1); }
+        #startBtn { padding: 15px 40px; cursor: pointer; background: transparent; border: 1px, solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: all 0.3s; }
+        #startBtn:hover { background: #b8c0ff; color: #0a0a12; }
+    </style>
+    
+    <!-- Load your Instrument Ecosystem -->
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../instruments/harp/OrchestraHarp.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Song of Solace</h1>
+        <p style="color: #666;">De stroom wordt gedicteerd door de tijd.</p>
+        <div class="status-box" id="debug">Systeem: Stand-by</div>
+        <button id="startBtn">Open the Source</button>
+    </div>
+
+    <script>
+        // --- DETERMINISTIC HELPER ---
+        function sRandom(seed) {
+            var x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // --- HARMONY MAP ---
+        // Converted from note names to MIDI numbers for your Instrument classes
+        const chordMap = {
+            "Cmaj7": { notes: [48, 52, 55, 59], next: ["Fmaj7", "Am7", "G7"] },
+            "Fmaj7": { notes: [41, 45, 48, 52], next: ["Cmaj7", "Dm7", "G7"] },
+            "Am7":   { notes: [45, 48, 52, 55], next: ["Dm7", "Fmaj7", "Cmaj7"] },
+            "G7":    { notes: [43, 47, 50, 53], next: ["Cmaj7", "Am7", "Fmaj7"] },
+            "Dm7":   { notes: [50, 53, 57, 60], next: ["G7", "Am7", "Fmaj7"] },
+            "Em7":   { notes: [40, 43, 47, 50], next: ["Am7", "Dm7", "Cmaj7"] }
+        };
+
+        let audioContext;
+        let pederInst, rainaInst, glassInst;
+        let currentChordName = "Cmaj7";
+        let step = 0;
+        let loopInterval;
+
+        // --- INITIALIZATION ---
+         async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const effectMgr = new EffectManager(audioContext);
+
+            // Assign instruments to the 3 influences
+            pederInst = new FeltPiano(audioContext);    
+            rainaInst = new SereneBells(audioContext);   
+            glassInst = new OrchestraHarp(audioContext); 
+
+			// --- BALANCING THE MIX ---
+            // Adjust these numbers until it sounds right to your ears
+            pederInst.setVolume(0.9);   // Felt Piano: Warm and present
+            rainaInst.setVolume(2.7);   // Serene Bells: Gentle and distant
+            glassInst.setVolume(0.1);   // Orchestra Harp: Lowered to stop it from overpowering
+
+
+            // Use the new state-based method
+            effectMgr.setReverb(pederInst, 'cathedral');
+            effectMgr.setReverb(rainaInst, 'cathedral');
+            effectMgr.setReverb(glassInst, 'cathedral');
+
+            startLoop();
+        }
+        function startLoop() {
+            const bpm = 58;
+            const stepDuration = (60 / bpm) / 2 * 1000; // 8th note duration
+
+            loopInterval = setInterval(() => {
+                const now = new Date();
+                const timestamp = now.getTime() / 1000;
+                const dailySeed = now.getFullYear() * 10000 + (now.getMonth()+1) * 100 + now.getDate();
+
+                // --- DYNAMIC MIX ---
+                const pederInfluence = (Math.sin(timestamp * 0.1) + 1) * 50;
+                const rainaInfluence = (Math.sin(timestamp * 0.15 + 2) + 1) * 50;
+                const glassInfluence = (Math.sin(timestamp * 0.07 + 4) + 1) * 50;
+
+                const total = pederInfluence + rainaInfluence + glassInfluence;
+                const mix = {
+                    peder: (pederInfluence / total) * 100,
+                    raina: (rainaInfluence / total) * 100,
+                    glass: (glassInfluence / total) * 100
+                };
+
+                document.getElementById('debug').innerHTML = 
+                    `Time: ${now.toLocaleTimeString()}<br>` +
+                    `Chord: ${currentChordName}<br>` +
+                    `Mix: P:mix.peder.toFixed(1){mix.peder.toFixed(1)}% R:mix.peder.toFixed(1){mix.raina.toFixed(1)}% G:${mix.glass.toFixed(1)}%`;
+
+                // 1. Harmony Shift (Every 8 steps / 1 bar)
+                if (step % 8 === 0) {
+                    const possible = chordMap[currentChordName].next;
+                    currentChordName = possible[Math.floor(sRandom(dailySeed + step) * possible.length)];
+                    const chord = chordMap[currentChordName];
+                    
+                    // Play the chordal foundation with the Harp and Piano
+                    chord.notes.forEach(n => pederInst.play(n, 0.2, 6000));
+                    glassInst.play(chord.notes[0] - 12, 0.3, 8000); // Bass note
+                }
+
+                const chord = chordMap[currentChordName];
+                const notes = chord.notes;
+
+                // 2. Generative Melody
+                const roll = sRandom(dailySeed + step + timestamp) * 100;
+                
+                if (roll < mix.glass) {
+                    // GLASS: Minimalist pulse (Orchestra Harp)
+                    const note = (step % 2 === 0) ? notes[0] : notes[2];
+                    glassInst.play(note, 0.4, 1000);
+                } 
+                else if (roll < mix.glass + mix.raina) {
+                    // RAINA: Lyrical arpeggio (Serene Bells)
+                    if (step % 2 === 0) {
+                        const randomNote = notes[Math.floor(sRandom(dailySeed + step) * notes.length)];
+                        rainaInst.play(randomNote, 0.3, 3000);
+                    } else if (Math.random() > 0.7) {
+                        rainaInst.play(notes[2] + 12, 0.2, 1000);
+                    }
+                } 
+                else {
+                    // PEDER: Long tones (Felt Piano)
+                    if (step % 16 === 0) {
+                        pederInst.play(notes[1], 0.4, 8000);
+                    }
+                }
+
+                step++;
+            }, stepDuration);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+        });
+    </script>
+</body>
+</html>
