@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; background: #ececec; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .score-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .score-table th, .score-table td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        .controls { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 20px; }
+        button { padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 5px; border: 1px solid #999; }
+        #render-btn { background: #4CAF50; color: white; border: none; }
+        #play-btn { background: #2196F3; color: white; border: none; }
+        #play-btn:disabled { background: #ccc; }
+        .status { text-align: center; color: #666; font-style: italic; margin-top: 10px; }
+    </style>
+    <title>Orchestra Offline Renderer</title>
+    <!-- Load your base scripts -->
+    <script src="../../../instruments/instrument.js"></script>
+    <script src="../../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../../instruments/KuwabaraFM/KuwabaraFM.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>Orchestra Offline Renderer</h1>
+    <p>This tool renders a complex composition to a buffer (OfflineAudioContext) to eliminate real-time clicks and CPU stutters.</p>
+
+    <table class="score-table">
+        <thead>
+            <tr>
+                <th>Instrument</th>
+                <th>Note</th>
+                <th>Volume</th>
+                <th>Start (sec)</th>
+                <th>Duration (ms)</th>
+            </tr>
+        </thead>
+        <tbody id="score-body">
+            <!-- Score entries will be generated here -->
+        </tbody>
+    </table>
+
+    <div class="controls">
+        <button id="render-btn">1. Render Orchestra</button>
+        <button id="play-btn" disabled>2. Play Result</button>
+    </div>
+    <div id="status" class="status">Ready.</div>
+</div>
+
+<script>
+    // --- THE RENDERER CLASS ---
+    class OrchestraRenderer {
+        async renderOrchestra(score, totalDurationSeconds, sampleRate = 44100) {
+            const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDurationSeconds, sampleRate);
+            const instrumentInstances = {};
+
+            score.forEach(event => {
+                const InstClass = event.instrument;
+                if (!instrumentInstances[InstClass.name]) {
+                    instrumentInstances[InstClass.name] = new InstClass(offlineCtx);
+                }
+
+                const inst = instrumentInstances[InstClass.name];
+                // We pass event.start as the 4th argument (startTime)
+                inst.play(event.note, event.vol, event.duration, event.start);
+            });
+
+            return await offlineCtx.startRendering();
+        }
+    }
+
+    // --- UI & CONTROL LOGIC ---
+    const scoreData = [
+        { instrument: FeltPiano, note: 48, vol: 0.6, start: 0.0, duration: 3000 },
+        { instrument: FeltPiano, note: 52, vol: 0.5, start: 0.5, duration: 2000 },
+        { instrument: FeltPiano, note: 55, vol: 0.5, start: 1.0, duration: 2000 },
+        { instrument: SereneBells, note: 72, vol: 0.4, start: 0.2, duration: 8000 },
+        { instrument: SereneBells, note: 84, vol: 0.3, start: 1.2, duration: 6000 },
+        { instrument: KuwabaraFM, note: 60, vol: 0.4, start: 2.0, duration: 1000 },
+        { instrument: KuwabaraFM, note: 63, vol: 0.4, start: 2.5, duration: 1000 },
+        { instrument: KuwabaraFM, note: 67, vol: 0.4, start: 3.0, duration: 1000 },
+    ];
+
+    let renderedBuffer = null;
+    let liveAudioCtx = null;
+
+    // Populate the table for visual representation
+    const tableBody = document.getElementById('score-body');
+    scoreData.forEach(item => {
+        const row = `<tr>
+            <td>${item.instrument.name}</td>
+            <td>${item.note}</td>
+            <td>${item.vol}</td>
+            <td>${item.start}s</td>
+            <td>${item.duration}ms</td>
+        </tr>`;
+        tableBody.innerHTML += row;
+    });
+
+    document.getElementById('render-btn').addEventListener('click', async () => {
+        const status = document.getElementById('status');
+        status.innerText = "Rendering... (Processing buffers)";
+        
+        try {
+            const renderer = new OrchestraRenderer();
+            // Render 6 seconds of audio
+            renderedBuffer = await renderer.renderOrchestra(scoreData, 6);
+            
+            status.innerText = "Rendering Complete!";
+            document.getElementById('play-btn').disabled = false;
+        } catch (e) {
+            console.error(e);
+            status.innerText = "Error during rendering: " + e.message;
+        }
+    });
+
+    document.getElementById('play-btn').addEventListener('click', () => {
+        if (!renderedBuffer) return;
+
+        // Create live context only when playing
+        if (!liveAudioCtx) {
+            liveAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const source = liveAudioCtx.createBufferSource();
+        source.buffer = renderedBuffer;
+        source.connect(liveAudioCtx.destination);
+        source.start();
+        
+        document.getElementById('status').innerText = "Playing pre-rendered sample...";
+    });
+</script>
+</body>
+</html>
