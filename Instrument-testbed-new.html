@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .control-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 8px; background: #f9f9f9; }
+        label { font-weight: bold; display: inline-block; width: 150px; }
+        input { margin-bottom: 10px; }
+        button { cursor: pointer; padding: 5px 15px; margin: 5px; }
+        .stop-btn { background-color: #ffcccc; border: 1px solid red; }
+    </style>
+    <title>Webaudio Instrument Testbed - Duration & Stop</title>
+    <script src="../../../instruments/instrument.js"></script>
+    <script src="../../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../../instruments/Kuwabara/FMKuwabara.js"></script>
+    <script src="../../../instruments/SereneBells/SereneBellsNew.js"></script>
+    <script src="../../../instruments/SereneBells/SereneBellPad.js.js"></script>
+</head>
+<body>
+    <h1>Instrument Testbed</h1>
+
+    <div class="control-group">
+        <h3>Single Note Controls</h3>
+        <label>MIDI Note:</label> <input id="midi-note-number" type="number" value="60"><br>
+        <label>Planned Decay (ms):</label> <input id="decay-time" type="number" value="3000"><br>
+        <button id="start">Play (Planned Duration)</button>
+        <button id="stop-note" class="stop-btn">Stop Current Note</button>
+    </div>
+
+    <div class="control-group">
+        <h3>Arpeggio Controls</h3>
+        <label>Arpeggio Delay (ms):</label> <input id="adelay" type="number" value="1600"><br>
+        <button id="arpeggio">Start Arpeggio</button>
+        <button id="stop-all" class="stop-btn">Stop All Active Notes</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let instrument;
+        let arpeggioInterval = null;
+        let lastPlayedNote = null; // Track the last single note for the "Stop" button
+
+        // Initialize audio context and instrument
+        function init() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                instrument = new FeltPiano(audioContext);
+            }
+        }
+
+        // 1. PLANNED DURATION TEST
+        function playInstrument() {
+            init();
+            const nr = Number(document.getElementById("midi-note-number").value);
+            const decay = Number(document.getElementById("decay-time").value);
+            const volume = 0.5;
+            
+            lastPlayedNote = nr; // Store note so we can stop it spontaneously
+            instrument.play(nr, volume, decay);
+        }
+
+        // 2. SPONTANEOUS STOP TEST
+        function stopCurrentNote() {
+            init();
+            if (lastPlayedNote !== null) {
+                console.log("Spontaneously stopping note: " + lastPlayedNote);
+                instrument.stop(lastPlayedNote);
+            }
+        }
+
+        function stopAll() {
+            init();
+            // Stop the arpeggio loop if running
+            if (arpeggioInterval) {
+                clearInterval(arpeggioInterval);
+                arpeggioInterval = null;
+            }
+            // Iterate through all possible MIDI notes (or track active ones) to stop them
+            // Since the instrument uses a Map internally, we just call stop on the range
+            for (let i = 0; i < 127; i++) {
+                instrument.stop(i);
+            }
+            console.log("All notes stopped.");
+        }
+
+        // Arpeggio Logic
+        var arpeggio_base_notes = [0, 2, 7];
+        var noteIdx = 0;
+        var dnote = 1;
+
+        function startPlayArpeggio() {
+            init();
+            if (arpeggioInterval) return; // Prevent multiple loops
+
+            var expanded = [];
+            var octaves = [-24, -12, 0, 12, 24];
+            octaves.forEach(oct => {
+                arpeggio_base_notes.forEach(n => expanded.push(n + oct));
+            });
+
+            const delay = Number(document.getElementById("adelay").value);
+            const baseNr = Number(document.getElementById("midi-note-number").value);
+
+            arpeggioInterval = setInterval(() => {
+                const volume = 0.3;
+                const currentNote = baseNr + expanded[noteIdx];
+                instrument.play(currentNote, volume, 5000); // Fixed long decay for arpeggio
+
+                noteIdx += dnote;
+                if (noteIdx >= expanded.length - 1 || noteIdx <= 0) {
+                    dnote *= -1;
+                }
+                if (noteIdx < 0) noteIdx = 0;
+                if (noteIdx >= expanded.length) noteIdx = expanded.length - 1;
+
+            }, delay);
+        }
+
+        // Event Listeners
+        document.getElementById("start").addEventListener("click", playInstrument);
+        document.getElementById("stop-note").addEventListener("click", stopCurrentNote);
+        document.getElementById("arpeggio").addEventListener("click", startPlayArpeggio);
+        document.getElementById("stop-all").addEventListener("click", stopAll);
+
+    </script>
+</body>
+</html>
