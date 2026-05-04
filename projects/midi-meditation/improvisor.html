@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Infinite Style Improviser</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #050508; 
+            color: #8a8aa0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container { 
+            text-align: center; 
+            width: 80%;
+            max-width: 800px; 
+            padding: 40px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+        }
+        h1 { 
+            color: #d1d1ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 4px;
+        }
+        .status-box { 
+            margin: 20px 0; 
+            padding: 15px; 
+            background: rgba(0,0,0,0.6); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #8aaaff; 
+            text-align: center; 
+            font-size: 0.9em; 
+            border: 1px solid rgba(192, 192, 255, 0.1); 
+            min-height: 40px;
+        }
+        #playBtn { 
+            padding: 15px 40px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #d1d1ff; 
+            color: #d1d1ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.4s ease; 
+            font-size: 1.1em;
+        }
+        #playBtn:hover { 
+            background: #d1d1ff; 
+            color: #0a0a0f; 
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Style Improviser</h1>
+        <p style="color: #555; font-style: italic; margin-bottom: 20px;">Generating endless variations based on analyzed harmonic DNA...</p>
+        
+        <div class="status-box" id="debug">Awaiting activation...</div>
+        <button id="playBtn">Start Improvisation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let pianoInst;
+        let effectMgr;
+        let isPlaying = false;
+
+        // MUSICAL DNA extracted from your analysis
+        const DNA = {
+            scales: {
+                A_Major: [57, 61, 64, 66, 69, 71, 73, 77], // A, C#, E, F#, A, B, C#, E (Octaves shifted)
+                F_Sharp_Minor: [54, 57, 60, 62, 66, 68, 71, 74],
+                E_Dominant: [52, 56, 59, 61, 64, 66, 69, 72]
+            },
+            bassNotes: [45, 49, 52, 54], // A, C#, E, F# (low)
+            durations: [0.8, 1.2, 2.0, 4.5, 0.1], // Mixed short and long for Rubato
+            harmonies: {
+                'A': [69, 73, 76], // A Major triad
+                'F#': [66, 69, 73], // F# Minor triad
+                'E': [64, 68, 71], // E Major triad
+                'D': [62, 66, 69]  // D Major triad
+            }
+        };
+
+        async function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                effectMgr = new EffectManager(audioContext);
+                pianoInst = new FeltPiano(audioContext);
+                pianoInst.setVolume(1.2);
+                effectMgr.setReverb(pianoInst, 'room');
+            }
+            if (audioContext.state === 'suspended') await audioContext.resume();
+        }
+
+        function getRandom(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        // The Generative Engine
+        async function improvise() {
+            if (!isPlaying) return;
+
+            const debug = document.getElementById('debug');
+            
+            // 1. Decide the current "Emotional State" (Harmonic Center)
+            const centers = ['A', 'F#', 'E', 'D'];
+            const currentCenter = getRandom(centers);
+            const currentHarmony = DNA.harmonies[currentCenter];
+
+            // 2. Play a Bass Anchor (The "Stride" feel)
+            const bassNote = getRandom(DNA.bassNotes);
+            pianoInst.play(bassNote, 0.2, 5000);
+            debug.innerHTML = `Harmonic Center: currentCenter∣Bass:{currentCenter} | Bass:currentCenter∣Bass:{bassNote}`;
+
+            // 3. Play a "Cloud" of melody notes above the bass
+            // We simulate the arpeggiated feel of the original piece
+            const melodyCount = Math.floor(Math.random() * 4) + 2;
+            
+            for (let i = 0; i < melodyCount; i++) {
+                const wait = getRandom(DNA.durations) * 200; 
+                await new Promise(r => setTimeout(r, wait));
+                
+                if (!isPlaying) return;
+
+                // Pick a note from the harmony or a nearby scale tone
+                const melodyNote = Math.random() > 0.3 
+                    ? getRandom(currentHarmony) + 12 // Octave up
+                    : getRandom(DNA.scales.A_Major) + 12;
+
+                pianoInst.play(melodyNote, 0.15, 3000);
+            }
+
+            // 4. Add a "Breath" (The Rubato pause)
+            const pause = getRandom(DNA.durations) * 1000;
+            await new Promise(r => setTimeout(r, pause));
+
+            // Loop forever
+            improvise();
+        }
+
+        document.getElementById('playBtn').addEventListener('click', async function() {
+            await initAudio();
+            
+            if (isPlaying) {
+                isPlaying = false;
+                this.innerHTML = "Start Improvisation";
+            } else {
+                isPlaying = true;
+                this.innerHTML = "Stop Improvisation";
+                improvise();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Atmosphere - Rachmaninoff Distillation</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #0a0a0f; 
+            color: #c0c0d0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+            overflow: hidden;
+        }
+        .container { 
+            text-align: center; 
+            max-width: 600px; 
+            padding: 60px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        h1 { 
+            color: #d1d1ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #555;
+            font-size: 0.9em;
+            margin-bottom: 40px;
+            letter-spacing: 2px;
+        }
+        .status-box { 
+            margin: 30px 0; 
+            padding: 25px; 
+            background: rgba(0,0,0,0.6); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #8a9aff; 
+            text-align: center; 
+            font-size: 1em; 
+            line-height: 1.6; 
+            border: 1px solid rgba(209, 209, 255, 0.1); 
+            min-height: 50px;
+        }
+        #startBtn { 
+            padding: 15px 45px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #d1d1ff; 
+            color: #d1d1ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.6s ease; 
+            outline: none;
+        }
+        #startBtn:hover { 
+            background: #d1d1ff; 
+            color: #0a0a0f; 
+            box-shadow: 0 0 20px rgba(209, 209, 255, 0.3);
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Vocalise Zen</h1>
+        <div class="subtitle">Sorrow distilled into silence</div>
+        <div class="status-box" id="debug">The void is waiting...</div>
+        <button id="startBtn">Begin Meditation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        /**
+         * HARMONIC DISTILLATION
+         * Based on Rachmaninoff's Vocalise:
+         * Core transitions move between D Minor (Melancholy), 
+         * G Minor (Yearning), A Major/Dominant (Tension), 
+         * and Bb Major/F Major (Transient Hope).
+         */
+        const HARMONIC_PILLARS = [
+            { name: "Deep Melancholy", notes: [50, 53, 57, 62] }, // D Minor
+            { name: "Quiet Yearning", notes: [55, 58, 62, 67] },  // G Minor
+            { name: "Fragile Tension", notes: [45, 49, 52, 57] }, // A Major
+            { name: "Transient Hope", notes: [46, 50, 53, 58] },  // Bb Major
+            { name: "Solemn Resolve", notes: [53, 57, 60, 65] }   // F Major
+        ];
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(1.5);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // The Bloom: Staggered entry for a swelling emotional effect
+        function bloomChord(pillar, velocity) {
+            pillar.notes.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, velocity, 15000);
+                }, i * 450);
+            });
+        }
+
+        // The Fragile Event: A slow, descending ghost of the melody
+        function playFragileEvent(pillar) {
+            const notes = [
+                pillar.notes[3], 
+                pillar.notes[2], 
+                pillar.notes[1], 
+                pillar.notes[0]
+            ];
+            notes.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, 0.12, 12000);
+                }, i * 1800);
+            });
+        }
+
+        function playZenEvent() {
+            const pillar = HARMONIC_PILLARS[Math.floor(Math.random() * HARMONIC_PILLARS.length)];
+            const roll = Math.random();
+            const debugEl = document.getElementById('debug');
+
+            if (roll < 0.70) {
+                // The Breath: Single long-decay note
+                const note = pillar.notes[Math.floor(Math.random() * pillar.notes.length)];
+                debugEl.innerHTML = "State: " + pillar.name + " — The Breath";
+                bellInst.play(note, 0.2, 14000);
+            } 
+            else if (roll < 0.85) {
+                // The Bloom: Swelling chord
+                debugEl.innerHTML = "State: " + pillar.name + " — The Bloom";
+                bloomChord(pillar, 0.18);
+            } 
+            else {
+                // The Fragile Event: Sparse descent
+                debugEl.innerHTML = "State: " + pillar.name + " — A Fragile Memory";
+                playFragileEvent(pillar);
+            }
+        }
+
+        function meditationLoop() {
+            playZenEvent();
+            
+            // Organic Breathing: Timing between 7 and 20 seconds
+            const nextBreath = sRandom(7000, 20000);
+            setTimeout(meditationLoop, nextBreath);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async function() {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "Entering the silence...";
+            
+            // Initial delay before first event
+            setTimeout(meditationLoop, 3000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MIDI to ABC Converter - Robust Edition</title>
+    <style>
+        body { font-family: monospace; background: #121212; color: #00ff41; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 80%; max-width: 800px; }
+        #output { width: 100%; height: 400px; background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 10px; margin-top: 20px; white-space: pre-wrap; overflow-y: auto; }
+        .controls { margin-bottom: 20px; }
+        input { color: #00ff41; background: #000; border: 1px solid #00ff41; padding: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>MIDI &rarr; ABC Converter</h1>
+        <div class="controls">
+            <input type="file" id="fileInput" accept=".mid,.midi">
+        </div>
+        <div id="output">ABC output will appear here...</div>
+    </div>
+
+    <script>
+        const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+        function midiNoteToAbc(midiNote) {
+            const name = NOTE_NAMES[midiNote % 12];
+            const octave = Math.floor(midiNote / 12) - 1;
+            
+            let abcNote = name;
+            const offset = octave - 4; 
+            
+            if (offset > 0) {
+                abcNote += ",".repeat(offset);
+            } else if (offset < 0) {
+                abcNote += "'".repeat(Math.abs(offset));
+            }
+            return abcNote;
+        }
+
+        function parseMidiToEvents(buffer) {
+            const view = new DataView(buffer);
+            let pos = 0;
+            const allRawEvents = [];
+
+            if (view.byteLength < 14 || view.getUint32(0) !== 0x4D546864) return null;
+            const numTracks = view.getUint16(10);
+            pos = 14;
+
+            for (let t = 0; t < numTracks; t++) {
+                // Sync to MTrk
+                while (pos < view.byteLength && (view.getUint8(pos) !== 0x4D || view.getUint8(pos+1) !== 0x54)) pos++;
+                if (pos >= view.byteLength - 8) break;
+                
+                pos += 4; 
+                const trackLength = view.getUint32(pos);
+                pos += 4;
+                const trackEnd = pos + trackLength;
+                
+                let absoluteTick = 0;
+                let runningStatus = null;
+
+                while (pos < trackEnd && pos < view.byteLength) {
+                    let delta = 0;
+                    while (pos < view.byteLength) {
+                        let byte = view.getUint8(pos++);
+                        delta = (delta << 7) | (byte & 0x7F);
+                        if (!(byte & 0x80)) break;
+                    }
+                    absoluteTick += delta;
+
+                    if (pos >= view.byteLength) break;
+
+                    let status = view.getUint8(pos);
+                    if (status < 0x80) {
+                        status = runningStatus;
+                    } else {
+                        runningStatus = status;
+                        pos++; 
+                    }
+
+                    if (status === null) { pos++; continue; }
+
+                    if ((status & 0xF0) === 0x90) { // Note On
+                        const note = view.getUint8(pos++);
+                        const vel = view.getUint8(pos++);
+                        if (vel > 0) {
+                            allRawEvents.push({ tick: absoluteTick, note: note });
+                        }
+                    } 
+                    else if ((status & 0xF0) === 0x80) { // Note Off
+                        pos += 2; 
+                    } 
+                    else if (status === 0xFF) { // Meta Event
+                        pos++; 
+                        let len = 0;
+                        while (pos < view.byteLength) {
+                            let b = view.getUint8(pos++);
+                            len = (len << 7) | (b & 0x7F);
+                            if (!(b & 0x80)) break;
+                        }
+                        pos += len;
+                    } 
+                    else {
+                        pos += (status === 0xC0 || (status & 0xF0) === 0xD0) ? 1 : 2;
+                    }
+                }
+                pos = trackEnd;
+            }
+            return allRawEvents.sort((a, b) => a.tick - b.tick);
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const buffer = await file.arrayBuffer();
+            const events = parseMidiToEvents(buffer);
+
+            if (!events || events.length === 0) {
+                document.getElementById('output').innerText = "No notes found.";
+                return;
+            }
+
+            let totalGap = 0;
+            for (let i = 1; i < events.length; i++) {
+                totalGap += (events[i].tick - events[i-1].tick);
+            }
+            const avgGap = totalGap / events.length || 1;
+
+            let abc = "X:1\nT:MIDI Conversion\nM:4/4\nL:1/4\nK:C\n";
+            let melody = "";
+
+            for (let i = 0; i < events.length; i++) {
+                const current = events[i];
+                const next = events[i + 1];
+                
+                const noteName = midiNoteToAbc(current.note);
+                const duration = next ? (next.tick - current.tick) / avgGap : 1;
+                const durationStr = duration.toFixed(2) === "1.00" ? "" : duration.toFixed(2);
+                
+                melody += noteName + durationStr + " ";
+            }
+
+            abc += melody;
+            document.getElementById('output').innerText = abc;
+        });
+    </script>
+</body>
+</html>

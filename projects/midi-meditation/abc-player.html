@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ABC Literal Player</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #050508; 
+            color: #8a8aa0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container { 
+            text-align: center; 
+            width: 80%;
+            max-width: 800px; 
+            padding: 40px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+        }
+        h1 { 
+            color: #d1d1ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 4px;
+        }
+        #dataInput {
+            width: 100%;
+            height: 200px;
+            background: rgba(0,0,0,0.5);
+            color: #8aaaff;
+            border: 1px solid rgba(192, 192, 255, 0.2);
+            border-radius: 20px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-bottom: 20px;
+            resize: vertical;
+        }
+        .status-box { 
+            margin: 20px 0; 
+            padding: 15px; 
+            background: rgba(0,0,0,0.6); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #8aaaff; 
+            text-align: center; 
+            font-size: 0.9em; 
+            border: 1px solid rgba(192, 192, 255, 0.1); 
+            min-height: 40px;
+        }
+        #playBtn { 
+            padding: 15px 40px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #d1d1ff; 
+            color: #d1d1ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.4s ease; 
+            font-size: 1.1em;
+        }
+        #playBtn:hover { 
+            background: #d1d1ff; 
+            color: #0a0a0f; 
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/FeltPiano/FeltPiano.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Literal Sequence Player</h1>
+        <p style="color: #555; font-style: italic; margin-bottom: 20px;">Paste your MIDI-ABC data below</p>
+        
+        <textarea id="dataInput" placeholder="Paste X:1 T:... and the note data here..."></textarea>
+        
+        <div class="status-box" id="debug">Ready to interpret...</div>
+        <button id="playBtn">Play Sequence</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let pianoInst;
+        let effectMgr;
+
+        // Mapping of note letters to base MIDI values
+        const NOTE_MAP = { 'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11 };
+
+        async function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                effectMgr = new EffectManager(audioContext);
+                pianoInst = new FeltPiano(audioContext);
+                pianoInst.setVolume(1.2);
+                effectMgr.setReverb(pianoInst, 'room');
+            }
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+        }
+
+        function parseNote(noteStr) {
+            // 1. Extract Octave Modifiers (', , , ' ' '')
+            let octaveOffset = 0;
+            let cleanNote = noteStr;
+
+            while (cleanNote.includes(',')) {
+                octaveOffset -= 12;
+                cleanNote = cleanNote.replace(',', '');
+            }
+            while (cleanNote.includes("'")) {
+                octaveOffset += 12;
+                cleanNote = cleanNote.replace("'", '');
+            }
+
+            // 2. Extract Note Name and Duration
+            // Regex split: captures the Note (like C# or F) and the Duration (like 2.38 or 0.00)
+            const match = cleanNote.match(/^([A-G]#?|Db|Eb|Gb|Ab|Bb)(\d*\.?\d*)$/);
+            if (!match) return null;
+
+            const name = match[1];
+            const duration = parseFloat(match[2]) || 0;
+            
+            // Base MIDI for middle C (C4) is 60
+            const midiNote = 60 + NOTE_MAP[name] + octaveOffset;
+
+            return { midiNote, duration };
+        }
+
+        function playSequence() {
+            const rawText = document.getElementById('dataInput').value;
+            const debug = document.getElementById('debug');
+            
+            // Find the start of the note sequence (everything after the metadata lines like K:C)
+            const lines = rawText.split('\n');
+            let dataLine = "";
+            for (let line of lines) {
+                if (line.includes('K:') || line.length > 50) {
+                    // This is a crude way to find the start of the actual note-blob
+                    dataLine = lines[lines.indexOf(line) + 1] || line;
+                    // If the line contains K: but the sequence is on the same line after a space
+                    if(line.includes('K:')) {
+                        const parts = line.split(/K:[^ \n]*/);
+                        if(parts[1]) dataLine = parts[1];
+                    }
+                    break;
+                }
+            }
+
+            // The data is typically space-separated (though in your sample it looks like notes can be smashed)
+            // We split by spaces, then filter out empty strings
+            const tokens = rawText.split(/\s+/).filter(t => t.length > 0 && !t.includes(':'));
+
+            let currentTime = 0;
+            debug.innerHTML = "Interpreting sequence...";
+
+            tokens.forEach((token, index) => {
+                const note = parseNote(token);
+                if (note) {
+                    // Schedule the note
+                    setTimeout(() => {
+                        pianoInst.play(note.midiNote, 0.1, 10000);
+                        debug.innerHTML = `Playing: ${token}`;
+                    }, currentTime * 100); // Multiply by a scalar (100ms) to control playback speed
+
+                    // Increment global timer by the duration provided in the string
+                    currentTime += note.duration;
+                }
+            });
+
+            setTimeout(() => {
+                debug.innerHTML = "Sequence complete.";
+            }, currentTime * 100);
+        }
+
+        document.getElementById('playBtn').addEventListener('click', async function() {
+            await initAudio();
+            playSequence();
+        });
+    </script>
+</body>
+</html>

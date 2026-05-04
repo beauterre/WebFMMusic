@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Chaconne - Harmonic Bloom</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 40px; border-radius: 30px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }
+        h1 { color: #b8c0ff; font-weight: lighter; font-style: italic; }
+        .status-box { margin: 30px 0; padding: 20px; background: rgba(0,0,0,0.4); border-radius: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; text-align: left; font-size: 0.9em; line-height: 1.6; border: 1px solid rgba(184, 192, 255, 0.1); }
+        #startBtn { padding: 15px 40px; cursor: pointer; background: transparent; border: 1px solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: all 0.3s; }
+        #startBtn:hover { background: #b8c0ff; color: #0a0a12; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Zen Chaconne</h1>
+        <p style="color: #666;">Harmonic Blooms and Fragile Arpeggios</p>
+        <div class="status-box" id="debug">Systeem: Ready to bloom</div>
+        <button id="startBtn">Begin Meditation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        const HARMONIC_PILLARS = [
+            { name: "D Minor (Grief)", notes: [50, 53, 57, 62] }, 
+            { name: "A Major (Tension)", notes: [45, 49, 52, 57] }, 
+            { name: "F Major (Hope)", notes: [53, 57, 60, 65] },    
+            { name: "G Minor (Yearning)", notes: [55, 58, 62, 67] }, 
+            { name: "Bb Major (Release)", notes: [46, 50, 53, 58] }   
+        ];
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(2.0);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // Blooms a chord by playing notes with slight delays
+        function bloomChord(pillar, velocity = 0.2, sustain = 12000) {
+            pillar.notes.forEach((note, i) => {
+                setTimeout(() => {
+                    bellInst.play(note, velocity, sustain);
+                }, i * 400); // 400ms stagger for a "soft" entry
+            });
+        }
+
+        // Plays a sparse, descending arpeggio
+        function playFragileArpeggio(pillar) {
+            const notes = [...pillar.notes].reverse();
+            notes.forEach((note, i) => {
+                setTimeout(() => {
+                    bellInst.play(note, 0.15, 8000);
+                }, i * 1200); // Slow, deliberate descent
+            });
+        }
+
+        function playZenEvent() {
+            const pillar = HARMONIC_PILLARS[Math.floor(Math.random() * HARMONIC_PILLARS.length)];
+            const eventRoll = Math.random();
+
+            if (eventRoll < 0.15) {
+                // 15% chance: A Full Harmonic Bloom
+                document.getElementById('debug').innerHTML = "Event: Harmonic Bloom<br>State: " + pillar.name;
+                bloomChord(pillar, 0.2, 15000);
+            } 
+            else if (eventRoll < 0.30) {
+                // 15% chance: A Fragile Arpeggio
+                document.getElementById('debug').innerHTML = "Event: Fragile Arpeggio<br>State: " + pillar.name;
+                playFragileArpeggio(pillar);
+            } 
+            else {
+                // 70% chance: A Single Breath
+                const note = pillar.notes[Math.floor(Math.random() * pillar.notes.length)];
+                document.getElementById('debug').innerHTML = "Event: Single Breath<br>State: " + pillar.name;
+                bellInst.play(note, 0.2, 12000);
+            }
+        }
+
+        let nextBreath = 0;
+        function meditationLoop() {
+            playZenEvent();
+            
+            // Variable timing to avoid predictability
+            nextBreath = sRandom(6000, 18000);
+            
+            setTimeout(meditationLoop, nextBreath);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "Entering the silence...";
+            meditationLoop();
+        });
+    </script>
+</body>
+</html>

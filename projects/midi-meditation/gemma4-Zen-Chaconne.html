@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Chaconne - Suizen Meditation</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 40px; border-radius: 30px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }
+        h1 { color: #b8c0ff; font-weight: lighter; font-style: italic; }
+        .status-box { margin: 30px 0; padding: 20px; background: rgba(0,0,0,0.4); border-radius: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; text-align: left; font-size: 0.9em; line-height: 1.6; border: 1px solid rgba(184, 192, 255, 0.1); }
+        #startBtn { padding: 15px 40px; cursor: pointer; background: transparent; border: 1px solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: all 0.3s; }
+        #startBtn:hover { background: #b8c0ff; color: #0a0a12; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Zen Chaconne</h1>
+        <p style="color: #666;">A deconstruction of BWV 1004 for deep meditation.</p>
+        <div class="status-box" id="debug">Systeem: Ready to breathe</div>
+        <button id="startBtn">Begin Meditation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        // The "Soul" of the Chaconne: Core harmonic pillars in D Minor
+        // We use these to ensure the feeling of Bach remains, even if the timing is Zen.
+        const HARMONIC_PILLARS = [
+            { root: 50, name: "D Minor (Grief)", notes: [50, 53, 57, 62] }, // D, F, A, D
+            { root: 48, name: "A Major (Tension)", notes: [45, 49, 52, 57] }, // A, C#, E, A
+            { root: 53, name: "F Major (Hope)", notes: [53, 57, 60, 65] },    // F, A, C, F
+            { root: 55, name: "G Minor (Yearning)", notes: [55, 58, 62, 67] }, // G, Bb, D, G
+            { root: 46, name: "Bb Major (Release)", notes: [46, 50, 53, 58] }   // Bb, D, F, Bb
+        ];
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(2.2);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function playZenNote() {
+            // 1. Select a harmonic pillar based on a slow walk
+            const pillarIndex = Math.floor(Math.random() * HARMONIC_PILLARS.length);
+            const pillar = HARMONIC_PILLARS[pillarIndex];
+            
+            // 2. Pick a note from that pillar (or a subtle tension note)
+            const note = pillar.notes[Math.floor(Math.random() * pillar.notes.length)];
+            
+            // 3. Play with a very long, fading sustain
+            bellInst.play(note, 0.25, 12000);
+
+            // Update status
+            document.getElementById('debug').innerHTML = 
+                "Current State: " + pillar.name + "<br>" +
+                "Note: " + note + "<br>" +
+                "Next breath in: " + (nextBreath / 1000).toFixed(1) + "s";
+        }
+
+        let nextBreath = 0;
+        function meditationLoop() {
+            playZenNote();
+            
+            // The "Zen" Timing:
+            // Instead of a metronome, we use an organic, floating interval.
+            // Notes occur between 4 and 15 seconds apart.
+            nextBreath = sRandom(4000, 15000);
+            
+            setTimeout(meditationLoop, nextBreath);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "Breathing initiated...";
+            meditationLoop();
+        });
+    </script>
+</body>
+</html>

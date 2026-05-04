@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Atmosphere - Nocturnal Bloom</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #08080c; 
+            color: #b0b0c0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container { 
+            text-align: center; 
+            max-width: 600px; 
+            padding: 50px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+        }
+        h1 { 
+            color: #c0c0ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 3px;
+        }
+        .status-box { 
+            margin: 30px 0; 
+            padding: 20px; 
+            background: rgba(0,0,0,0.5); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #9aaaff; 
+            text-align: center; 
+            font-size: 0.95em; 
+            border: 1px solid rgba(192, 192, 255, 0.1); 
+            min-height: 40px;
+        }
+        #startBtn { 
+            padding: 15px 40px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #c0c0ff; 
+            color: #c0c0ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.4s ease; 
+        }
+        #startBtn:hover { 
+            background: #c0c0ff; 
+            color: #08080c; 
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Nocturnal Bloom</h1>
+        <p style="color: #555; font-style: italic;">A distillation of shadows and light</p>
+        <div class="status-box" id="debug">The air is still...</div>
+        <button id="startBtn">Begin Meditation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        /**
+         * HARMONIC DISTILLATION
+         * Analysis of the ABC notation reveals a strong movement around 
+         * C# Minor, F# Major, G# Minor, and D# Minor.
+         * The mood is dark, lush, and cinematic.
+         */
+        const HARMONIC_PILLARS = [
+            { name: "Obsidian Silence", notes: [49, 53, 56, 61] }, // C# Minor
+            { name: "Pale Moonlight", notes: [46, 51, 54, 58] },   // F# Major / Dominant
+            { name: "Cold Yearning", notes: [51, 56, 59, 64] },    // G# Minor
+            { name: "Distant Memory", notes: [53, 58, 61, 66] },   // D# Minor
+            { name: "Suspended Breath", notes: [48, 52, 56, 60] }  // C Major/Subdominant flux
+        ];
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(1.8);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // The Bloom: Staggered harmonic swell
+        function bloomChord(pillar, velocity) {
+            pillar.notes.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, velocity, 15000);
+                }, i * 400);
+            });
+        }
+
+        // The Fragile Event: Sparse melodic descent
+        function playFragileEvent(pillar) {
+            const melodyGhost = [
+                pillar.notes[3], 
+                pillar.notes[2], 
+                pillar.notes[0]
+            ];
+            melodyGhost.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, 0.12, 12000);
+                }, i * 2000);
+            });
+        }
+
+        function playZenEvent() {
+            const pillar = HARMONIC_PILLARS[Math.floor(Math.random() * HARMONIC_PILLARS.length)];
+            const roll = Math.random();
+            const debugEl = document.getElementById('debug');
+
+            if (roll < 0.70) {
+                // The Breath
+                const note = pillar.notes[Math.floor(Math.random() * pillar.notes.length)];
+                debugEl.innerHTML = "State: " + pillar.name + " — The Breath";
+                bellInst.play(note, 0.2, 14000);
+            } 
+            else if (roll < 0.85) {
+                // The Bloom
+                debugEl.innerHTML = "State: " + pillar.name + " — The Bloom";
+                bloomChord(pillar, 0.15);
+            } 
+            else {
+                // The Fragile Event
+                debugEl.innerHTML = "State: " + pillar.name + " — A Fragile Echo";
+                playFragileEvent(pillar);
+            }
+        }
+
+        function meditationLoop() {
+            playZenEvent();
+            
+            // Organic Breathing: Variable interval between 6 and 18 seconds
+            const nextBreath = sRandom(6000, 18000);
+            setTimeout(meditationLoop, nextBreath);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async function() {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "Sinking into the atmosphere...";
+            
+            setTimeout(meditationLoop, 2000);
+        });
+    </script>
+</body>
+</html>

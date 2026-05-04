@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Atmosphere - Endless Improviser</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #050508; 
+            color: #8a8aa0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container { 
+            text-align: center; 
+            max-width: 600px; 
+            padding: 60px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+        }
+        h1 { 
+            color: #d1d1ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 4px;
+        }
+        .status-box { 
+            margin: 30px 0; 
+            padding: 20px; 
+            background: rgba(0,0,0,0.6); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #8aaaff; 
+            text-align: center; 
+            font-size: 0.9em; 
+            border: 1px solid rgba(192, 192, 255, 0.1); 
+            min-height: 60px;
+            line-height: 1.6;
+        }
+        #startBtn { 
+            padding: 15px 40px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #d1d1ff; 
+            color: #d1d1ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.4s ease; 
+        }
+        #startBtn:hover { 
+            background: #d1d1ff; 
+            color: #0a0a0f; 
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Endless Improviser</h1>
+        <p style="color: #555; font-style: italic;">Infinite Extension of the Original Soul</p>
+        <div class="status-box" id="debug">The instrument is silent...</div>
+        <button id="startBtn">Begin Improvisation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        // HARMONIC LOGIC MAP
+        // Derived from ABC: Transitions represent the "flow" of the original piece
+        const HARMONIC_MAP = {
+            "A_Major": {
+                notes: [45, 52, 57, 61, 64],
+                transitions: ["C#_Minor", "F#_Minor", "A_Major"], // Likely next states
+                emotion: "Rooted Serenity"
+            },
+            "C#_Minor": {
+                notes: [49, 53, 56, 61, 66],
+                transitions: ["F#_Minor", "E_Major", "A_Major"],
+                emotion: "Introspective Tension"
+            },
+            "F#_Minor": {
+                notes: [42, 46, 51, 54, 58],
+                transitions: ["C#_Minor", "A_Major", "F#_Minor"],
+                emotion: "Fragile Melancholy"
+            },
+            "E_Major": {
+                notes: [40, 44, 49, 53, 57],
+                transitions: ["A_Major", "C#_Minor"],
+                emotion: "Luminous Release"
+            }
+        };
+
+        let currentState = "A_Major";
+        let currentRole = "BASS"; // Roles: BASS, HARMONY, MELODY
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(1.4);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // PHRASING LOGIC
+        function playBassRole(state) {
+            const note = state.notes[0]; // Root
+            bellInst.play(note, 0.15, 18000);
+            return "Deepening the foundation...";
+        }
+
+        function playHarmonyRole(state) {
+            const harmonyNotes = state.notes.slice(1, 3);
+            harmonyNotes.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, 0.08, 12000);
+                }, i * 600);
+            });
+            return "Weaving harmonic threads...";
+        }
+
+        function playMelodyRole(state) {
+            const melodyScale = state.notes.map(function(n) { return n + 12; });
+            const length = Math.floor(sRandom(2, 4));
+            for (let i = 0; i < length; i++) {
+                setTimeout(function() {
+                    const note = melodyScale[Math.floor(Math.random() * melodyScale.length)];
+                    bellInst.play(note, 0.06, 8000);
+                }, i * sRandom(1500, 3000));
+            }
+            return "Tracing a ghostly melody...";
+        }
+
+        function improviserLoop() {
+            const stateData = HARMONIC_MAP[currentState];
+            
+            // 1. Update State based on Harmonic Logic (Markov Chain)
+            const transitionIndex = Math.floor(Math.random() * stateData.transitions.length);
+            const nextState = stateData.transitions[transitionIndex];
+            
+            // 2. Rotate Role to mimic human phrasing (Bass -> Harmony -> Melody)
+            if (currentRole === "BASS") currentRole = "HARMONY";
+            else if (currentRole === "HARMONY") currentRole = "MELODY";
+            else currentRole = "BASS";
+
+            // 3. Execute Role
+            let actionText = "";
+            if (currentRole === "BASS") actionText = playBassRole(stateData);
+            else if (currentRole === "HARMONY") actionText = playHarmonyRole(stateData);
+            else actionText = playMelodyRole(stateData);
+
+            // 4. Update UI
+            document.getElementById('debug').innerHTML = "State: " + stateData.emotion + "<br>Role: " + currentRole + "<br>" + actionText;
+
+            // 5. Temporal Elasticity (Breathing)
+            // Bass notes allow for longer silence, melody notes create tighter phrasing
+            let nextInterval = 0;
+            if (currentRole === "BASS") nextInterval = sRandom(12000, 22000);
+            else if (currentRole === "HARMONY") nextInterval = sRandom(8000, 15000);
+            else nextInterval = sRandom(6000, 12000);
+
+            currentState = nextState;
+            setTimeout(improviserLoop, nextInterval);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async function() {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "The improviser is listening to the silence...";
+            
+            setTimeout(improviserLoop, 3000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zen Atmosphere - Rhythmic Ghost</title>
+    <style>
+        body { 
+            font-family: 'Georgia', serif; 
+            background: #0a0a0f; 
+            color: #b0b0c0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container { 
+            text-align: center; 
+            max-width: 600px; 
+            padding: 50px; 
+            border-radius: 40px; 
+            background: rgba(255,255,255,0.01); 
+            border: 1px solid rgba(255,255,255,0.03); 
+        }
+        h1 { 
+            color: #d1d1ff; 
+            font-weight: lighter; 
+            font-style: italic; 
+            letter-spacing: 3px;
+        }
+        .status-box { 
+            margin: 30px 0; 
+            padding: 20px; 
+            background: rgba(0,0,0,0.6); 
+            border-radius: 20px; 
+            font-family: 'Courier New', monospace; 
+            color: #8aaaff; 
+            text-align: center; 
+            font-size: 0.9em; 
+            border: 1px solid rgba(192, 192, 255, 0.1); 
+            min-height: 40px;
+        }
+        #startBtn { 
+            padding: 15px 40px; 
+            cursor: pointer; 
+            background: transparent; 
+            border: 1px solid #d1d1ff; 
+            color: #d1d1ff; 
+            border-radius: 50px; 
+            font-family: 'Georgia', serif; 
+            transition: all 0.4s ease; 
+        }
+        #startBtn:hover { 
+            background: #d1d1ff; 
+            color: #0a0a0f; 
+        }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Rhythmic Ghost</h1>
+        <p style="color: #555; font-style: italic;">Tension, Flutter, and Stasis</p>
+        <div class="status-box" id="debug">Awaiting the first breath...</div>
+        <button id="startBtn">Begin Meditation</button>
+    </div>
+
+    <script>
+        let audioContext;
+        let bellInst;
+        let effectMgr;
+
+        const HARMONIC_PILLARS = [
+            { name: "Obsidian", notes: [49, 53, 56, 61] }, // C#m
+            { name: "Moonlight", notes: [46, 51, 54, 58] }, // F#
+            { name: "Yearning", notes: [51, 56, 59, 64] },  // G#m
+            { name: "Distant", notes: [53, 58, 61, 66] }    // D#m
+        ];
+
+        async function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(1.6);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function sRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // GESTURE 1: THE STASIS (Long, deep arrivals)
+        // Mimics the 7.14s - 14.28s markers in the ABC
+        function playStasis(pillar) {
+            const note = pillar.notes[0];
+            document.getElementById('debug').innerHTML = "Gesture: Stasis <br> State: " + pillar.name;
+            bellInst.play(note, 0.2, 18000);
+        }
+
+        // GESTURE 2: THE FLUTTER (Rapid, fragile clusters)
+        // Mimics the 2.38s repetitive movements
+        function playFlutter(pillar) {
+            document.getElementById('debug').innerHTML = "Gesture: Flutter <br> State: " + pillar.name;
+            const clusterSize = Math.floor(sRandom(3, 6));
+            
+            for (let i = 0; i < clusterSize; i++) {
+                setTimeout(function() {
+                    const note = pillar.notes[Math.floor(Math.random() * pillar.notes.length)];
+                    bellInst.play(note, 0.1, 8000);
+                }, i * 1100); // The rhythmic "shudder" (approx 2.38s cycle divided)
+            }
+        }
+
+        // GESTURE 3: THE BLOOM (The swell)
+        function playBloom(pillar) {
+            document.getElementById('debug').innerHTML = "Gesture: Bloom <br> State: " + pillar.name;
+            pillar.notes.forEach(function(note, i) {
+                setTimeout(function() {
+                    bellInst.play(note, 0.15, 12000);
+                }, i * 600);
+            });
+        }
+
+        function generativeEngine() {
+            const pillar = HARMONIC_PILLARS[Math.floor(Math.random() * HARMONIC_PILLARS.length)];
+            const moodRoll = Math.random();
+            
+            if (moodRoll < 0.50) {
+                // 50% chance: Long Stasis (The heavy breath)
+                playStasis(pillar);
+                // Long wait after stasis to allow the note to bleed into silence
+                setTimeout(generativeEngine, sRandom(12000, 22000));
+            } 
+            else if (moodRoll < 0.80) {
+                // 30% chance: Flutter (The nervous movement)
+                playFlutter(pillar);
+                // Shorter wait after flutter to create rhythmic tension
+                setTimeout(generativeEngine, sRandom(5000, 10000));
+            } 
+            else {
+                // 20% chance: Bloom (The harmonic arrival)
+                playBloom(pillar);
+                setTimeout(generativeEngine, sRandom(8000, 15000));
+            }
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async function() {
+            await initAudio();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('debug').innerHTML = "Analyzing rhythmic ghosts...";
+            
+            setTimeout(generativeEngine, 3000);
+        });
+    </script>
+</body>
+</html>

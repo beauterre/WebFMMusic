@@ -1,0 +1,24 @@
+The "Zen-Atmosphere" Prompt
+Role: You are an expert in generative ambient music and sound design, specializing in "Suizen" (Zen) meditation compositions.
+
+Task: I will provide you with a piece of music in ABC notation. Your goal is NOT to play the piece literally, but to create an HTML/JS generative environment that distills the "emotional essence" of this music into a 20+ minute atmospheric experience.
+
+Reference Material:
+
+[INSERT ABC NOTATION HERE]
+[INSERT MY LAST HTML CODE AS THE ARCHITECTURAL REFERENCE]
+Instructions for the Composition Logic:
+
+Harmonic Distillation: Do not loop the melody. Instead, analyze the ABC input to identify the "Harmonic Pillars" (the core chords, root notes, and emotional anchors of the piece). Extract 4–6 primary harmonic states (e.g., Grief, Tension, Hope, Release) based on the key and chord progressions in the ABC.
+Temporal Elasticity: Replace the fixed tempo with "Organic Breathing." Use recursive setTimeout calls with random ranges (e.g., 6s to 18s) so the music feels alive and unpredictable.
+Event Hierarchy: Implement three levels of sonic events:
+The Breath (70%): Single, long-decay notes chosen from the current harmonic pillar.
+The Bloom (15%): Staggered, soft chords where notes enter with a slight delay (300-500ms) to create a swelling effect.
+The Fragile Event (15%): Slow, sparse arpeggios or descending lines derived from the original melody's motifs.
+Sustain & Space: Ensure all notes have extreme sustain (10s–15s) to create a "harmonic haze" where the ghosts of previous notes overlap with new ones.
+Technical Requirements:
+
+Use the provided Instrument Ecosystem (Instrument.js, SereneBells, EffectManager).
+Use a 'cathedral' reverb for maximum space.
+Crucial: Use only the + operator for string concatenation (no backticks/template literals).
+Provide a minimal, elegant UI with a "Begin Meditation" button and a status box that describes the current "Emotional State" (e.g., "State: Yearning").

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Meditation Remapper</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        .controls { background: rgba(255,255,255,0.05); padding: 30px; border-radius: 30px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.1); width: 80%; max-width: 800px; }
+        .param-group { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 20px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 20px; }
+        .slider-container { display: flex; align-items: center; justify-content: center; gap: 20px; width: 100%; }
+        input[type=range] { width: 250px; cursor: pointer; }
+        canvas { background: #000; border: 1px solid #333; border-radius: 10px; box-shadow: 0 0 50px rgba(0,0,0,1); }
+        #stats { margin-top: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; font-size: 0.9em; line-height: 1.6; }
+        .btn { padding: 12px 30px; cursor: pointer; background: transparent; border: 1px solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: 0.3s; }
+        .btn:hover { background: #b8c0ff; color: #0a0a12; }
+        #fileInput { display: none; }
+        label { font-size: 0.8em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="controls">
+        <h1 style="font-weight: lighter; font-style: italic;">Meditation Remapper</h1>
+        
+        <label for="fileInput" class="btn">Load MIDI Source</label>
+        <input type="file" id="fileInput" accept=".mid,.midi">
+        
+        <div class="param-group">
+            <label>Minimum Pause (Seconds)</label>
+            <div class="slider-container">
+                <input type="range" id="minPause" min="0.1" max="5" step="0.1" value="1">
+                <span id="minPauseVal">1s</span>
+            </div>
+        </div>
+
+        <div class="param-group">
+            <label>Maximum Pause (Seconds)</label>
+            <div class="slider-container">
+                <input type="range" id="maxPause" min="1" max="30" step="0.5" value="10">
+                <span id="maxPauseVal">10s</span>
+            </div>
+        </div>
+
+        <button id="applyBtn" class="btn" style="display:none;">Apply & Play</button>
+        <div id="stats">Systeem: Stand-by</div>
+    </div>
+
+    <canvas id="pianoRoll"></canvas>
+
+    <script>
+        const canvas = document.getElementById('pianoRoll');
+        const ctx = canvas.getContext('2d');
+        const stats = document.getElementById('stats');
+        
+        const minPauseSld = document.getElementById('minPause');
+        const maxPauseSld = document.getElementById('maxPause');
+        const minPauseVal = document.getElementById('minPauseVal');
+        const maxPauseVal = document.getElementById('maxPauseVal');
+        const applyBtn = document.getElementById('applyBtn');
+
+        let audioContext, bellInst, effectMgr;
+        let originalNoteBlocks = [];
+        let processedBlocks = [];
+        let isPlaying = false;
+        let startTime = 0;
+        let currentPlayheadMs = 0;
+
+        // Update label values
+        minPauseSld.oninput = () => minPauseVal.innerText = minPauseSld.value + "s";
+        maxPauseSld.oninput = () => maxPauseVal.innerText = maxPauseSld.value + "s";
+
+        async function initAudio() {
+            if (audioContext) return;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(2.5);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function parseMidi(buffer) {
+            const view = new DataView(buffer);
+            let pos = 0;
+            const allRawEvents = [];
+            if (view.byteLength < 14 || view.getUint32(0) !== 0x4D546864) return null;
+            const numTracks = view.getUint16(10);
+            pos = 14;
+            for (let t = 0; t < numTracks; t++) {
+                while (pos < view.byteLength && (view.getUint8(pos) !== 0x4D || view.getUint8(pos+1) !== 0x54)) pos++;
+                if (pos >= view.byteLength - 8) break;
+                pos += 4; 
+                const trackLength = view.getUint32(pos);
+                pos += 4;
+                const trackEnd = pos + trackLength;
+                let absoluteTick = 0, runningStatus = null;
+                while (pos < trackEnd && pos < view.byteLength) {
+                    let delta = 0;
+                    while (pos < view.byteLength) {
+                        let byte = view.getUint8(pos++);
+                        delta = (delta << 7) | (byte & 0x7F);
+                        if (!(byte & 0x80)) break;
+                    }
+                    absoluteTick += delta;
+                    if (pos >= view.byteLength) break;
+                    let status = view.getUint8(pos);
+                    if (status < 0x80) status = runningStatus;
+                    else { runningStatus = status; pos++; }
+                    if (status === null) { pos++; continue; }
+                    if ((status & 0xF0) === 0x90) { 
+                        const note = view.getUint8(pos++);
+                        const vel = view.getUint8(pos++);
+                        if (vel > 0) allRawEvents.push({ tick: absoluteTick, type: 'on', note, vel });
+                        else allRawEvents.push({ tick: absoluteTick, type: 'off', note });
+                    } else if ((status & 0xF0) === 0x80) { 
+                        const note = view.getUint8(pos++); pos++; 
+                        allRawEvents.push({ tick: absoluteTick, type: 'off', note });
+                    } else if (status === 0xFF) { 
+                        pos++; let len = 0;
+                        while (pos < view.byteLength) {
+                            let b = view.getUint8(pos++);
+                            len = (len << 7) | (b & 0x7F);
+                            if (!(b & 0x80)) break;
+                        }
+                        pos += len;
+                    } else if (status === 0xF0 || status === 0xF7) { 
+                        if (status === 0xF0) { while (pos < view.byteLength && view.getUint8(pos++) !== 0xF7); } else { pos++; }
+                    } else { pos += (status === 0xC0 || (status & 0xF0) === 0xD0) ? 1 : 2; }
+                }
+                pos = trackEnd;
+            }
+            return allRawEvents;
+        }
+
+        function convertToBlocks(raw) {
+            const blocks = [];
+            const active = {};
+            raw.sort((a, b) => a.tick - b.tick);
+            raw.forEach(ev => {
+                const key = ev.note; 
+                if (ev.type === 'on') {
+                    if (active[key]) {
+                        const s = active[key];
+                        blocks.push({ note: s.note, start: s.tick, vel: s.vel });
+                    }
+                    active[key] = ev;
+                } else if (ev.type === 'off' && active[key]) {
+                    const s = active[key];
+                    blocks.push({ note: s.note, start: s.tick, vel: s.vel });
+                    delete active[key];
+                }
+            });
+            return blocks.sort((a, b) => a.start - b.start);
+        }
+
+        function remapTemporalDistribution() {
+            const minP = parseFloat(minPauseSld.value) * 1000;
+            const maxP = parseFloat(maxPauseSld.value) * 1000;
+            
+            // 1. Extract all original gaps (IOI)
+            const gaps = [];
+            for (let i = 1; i < originalNoteBlocks.length; i++) {
+                gaps.push(originalNoteBlocks[i].start - originalNoteBlocks[i-1].start);
+            }
+
+            // 2. Create a sorted reference of gaps to find the distribution
+            const sortedGaps = [...gaps].sort((a, b) => a - b);
+            const minOrig = sortedGaps[0] || 0;
+            const maxOrig = sortedGaps[sortedGaps.length - 1] || 1;
+
+            // 3. Rebuild the timeline using mapped gaps
+            let currentMs = 0;
+            processedBlocks = [];
+
+            originalNoteBlocks.forEach((block, i) => {
+                if (i > 0) {
+                    const origGap = gaps[i-1];
+                    // Map original gap to new range: linear interpolation
+                    const normalized = (origGap - minOrig) / (maxOrig - minOrig || 1);
+                    const mappedGap = minP + normalized * (maxP - minP);
+                    currentMs += mappedGap;
+                }
+                
+                processedBlocks.push({
+                    ...block,
+                    startTimeMs: currentMs,
+                    played: false
+                });
+            });
+
+            return currentMs; // Total length
+        }
+
+        function draw(now) {
+            if (processedBlocks.length === 0) return;
+            const minNote = Math.min(...processedBlocks.map(b => b.note));
+            const maxNote = Math.max(...processedBlocks.map(b => b.note));
+            const noteRange = maxNote - minNote + 1;
+            const totalTime = processedBlocks[processedBlocks.length - 1].startTimeMs;
+
+            canvas.width = 1200;
+            canvas.height = noteRange * 6 + 100;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            processedBlocks.forEach(b => {
+                const x = (b.startTimeMs / totalTime) * canvas.width;
+                const y = (b.note - minNote) * 6;
+                const brightness = Math.floor((b.vel / 127) * 40) + 30;
+                ctx.fillStyle = `hsl(210, 80%, ${brightness}%)`;
+                ctx.fillRect(x, y, 4, 5);
+            });
+
+            if (isPlaying) {
+                const cursorX = (currentPlayheadMs / totalTime) * canvas.width;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, 0);
+                ctx.lineTo(cursorX, canvas.height);
+                ctx.stroke();
+            }
+        }
+
+        function playLoop(now) {
+            if (!isPlaying) return;
+            const deltaTime = now - lastFrameTime;
+            lastFrameTime = now;
+            currentPlayheadMs += deltaTime;
+
+            processedBlocks.forEach(b => {
+                if (!b.played && currentPlayheadMs >= b.startTimeMs) {
+                    bellInst.play(b.note, 0.3, 10000); // Extra long sustain for meditation
+                    b.played = true;
+                }
+            });
+
+            draw(now);
+
+            const totalTime = processedBlocks[processedBlocks.length - 1].startTimeMs;
+            if (currentPlayheadMs < totalTime) {
+                requestAnimationFrame(playLoop);
+            } else {
+                isPlaying = false;
+                stats.innerHTML = "Meditation complete.";
+            }
+        }
+
+        let lastFrameTime = 0;
+
+        applyBtn.onclick = async () => {
+            await initAudio();
+            const totalMs = remapTemporalDistribution();
+            currentPlayheadMs = 0;
+            isPlaying = true;
+            lastFrameTime = performance.now();
+            
+			stats.innerHTML = "Composition Rebuilt.<br>Total Duration: " + Math.floor(totalMs/1000) + "s (" + (totalMs/60000).toFixed(2) + " min)";
+            requestAnimationFrame(playLoop);
+        };
+
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const buffer = await file.arrayBuffer();
+            const raw = parseMidi(buffer);
+            if (!raw) return;
+
+            originalNoteBlocks = convertToBlocks(raw);
+            applyBtn.style.display = "inline-block";
+            stats.innerHTML = `Loaded ${originalNoteBlocks.length} notes. Adjust pauses and click Apply.`;
+        });
+    </script>
+</body>
+</html>

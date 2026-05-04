@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Eternal Stretch - Robust Edition</title>
+    <style>
+        body { font-family: 'Georgia', serif; background: #05050a; color: #d1d1e0; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        .controls { background: rgba(255,255,255,0.05); padding: 30px; border-radius: 30px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
+        canvas { background: #000; border: 1px solid #333; border-radius: 10px; box-shadow: 0 0 50px rgba(0,0,0,1); }
+        #stats { margin-top: 15px; font-family: 'Courier New', monospace; color: #a2d2ff; font-size: 0.9em; }
+        .btn { padding: 12px 30px; cursor: pointer; background: transparent; border: 1px solid #b8c0ff; color: #b8c0ff; border-radius: 50px; font-family: 'Georgia', serif; transition: 0.3s; }
+        .btn:hover { background: #b8c0ff; color: #0a0a12; }
+        #fileInput { display: none; }
+    </style>
+    <script src="../../general/instrument.js"></script>
+    <script src="../../instruments/SereneBells/SereneBells.js"></script>
+    <script src="../../general/EffectManager.js"></script>
+</head>
+<body>
+
+    <div class="controls">
+        <h1>Eternal Stretch</h1>
+        <p style="color: #666; font-style: italic;">Robust Multi-Track Parser Edition</p>
+        <label for="fileInput" class="btn">Load MIDI File</label>
+        <input type="file" id="fileInput" accept=".mid,.midi">
+        <div id="stats">Systeem: Stand-by</div>
+    </div>
+
+    <canvas id="pianoRoll"></canvas>
+
+    <script>
+        const canvas = document.getElementById('pianoRoll');
+        const ctx = canvas.getContext('2d');
+        const stats = document.getElementById('stats');
+
+        let audioContext, bellInst, effectMgr;
+        let noteBlocks = [];
+        let isPlaying = false;
+        let startTime = 0;
+        const STRETCH_DURATION_MS = 20 * 60 * 1000; 
+        let tickRange = 0, minTick = 0;
+
+        async function initAudio() {
+            if (audioContext) return;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            effectMgr = new EffectManager(audioContext);
+            bellInst = new SereneBells(audioContext);
+            bellInst.setVolume(2.5);
+            effectMgr.setReverb(bellInst, 'cathedral');
+        }
+
+        function parseMidi(buffer) {
+            const view = new DataView(buffer);
+            let pos = 0;
+            const allRawEvents = [];
+
+            if (view.byteLength < 14 || view.getUint32(0) !== 0x4D546864) return null;
+            const numTracks = view.getUint16(10);
+            pos = 14;
+
+            for (let t = 0; t < numTracks; t++) {
+                while (pos < view.byteLength && (view.getUint8(pos) !== 0x4D || view.getUint8(pos+1) !== 0x54)) pos++;
+                if (pos >= view.byteLength - 8) break;
+                
+                pos += 4; 
+                const trackLength = view.getUint32(pos);
+                pos += 4;
+                const trackEnd = pos + trackLength;
+                
+                let absoluteTick = 0;
+                let runningStatus = null;
+
+                while (pos < trackEnd && pos < view.byteLength) {
+                    let delta = 0;
+                    while (pos < view.byteLength) {
+                        let byte = view.getUint8(pos++);
+                        delta = (delta << 7) | (byte & 0x7F);
+                        if (!(byte & 0x80)) break;
+                    }
+                    absoluteTick += delta;
+
+                    if (pos >= view.byteLength) break;
+
+                    let status = view.getUint8(pos);
+                    if (status < 0x80) {
+                        status = runningStatus;
+                    } else {
+                        runningStatus = status;
+                        pos++; 
+                    }
+
+                    if (status === null) { pos++; continue; }
+
+                    if ((status & 0xF0) === 0x90) { 
+                        const note = view.getUint8(pos++);
+                        const vel = view.getUint8(pos++);
+                        if (vel > 0) allRawEvents.push({ tick: absoluteTick, type: 'on', note, vel });
+                        else allRawEvents.push({ tick: absoluteTick, type: 'off', note });
+                    } 
+                    else if ((status & 0xF0) === 0x80) { 
+                        const note = view.getUint8(pos++);
+                        pos++; 
+                        allRawEvents.push({ tick: absoluteTick, type: 'off', note });
+                    } 
+                    else if (status === 0xFF) { 
+                        pos++; 
+                        let len = 0;
+                        while (pos < view.byteLength) {
+                            let b = view.getUint8(pos++);
+                            len = (len << 7) | (b & 0x7F);
+                            if (!(b & 0x80)) break;
+                        }
+                        pos += len;
+                    } 
+                    else if (status === 0xF0 || status === 0xF7) { 
+                        if (status === 0xF0) {
+                            while (pos < view.byteLength && view.getUint8(pos++) !== 0xF7);
+                        } else { pos++; }
+                    }
+                    else {
+                        pos += (status === 0xC0 || (status & 0xF0) === 0xD0) ? 1 : 2;
+                    }
+                }
+                pos = trackEnd;
+            }
+            return allRawEvents;
+        }
+
+        function convertToBlocks(raw) {
+            const blocks = [];
+            const active = {};
+            raw.sort((a, b) => a.tick - b.tick);
+
+            raw.forEach(ev => {
+                const key = ev.note; 
+                if (ev.type === 'on') {
+                    if (active[key]) {
+                        const s = active[key];
+                        blocks.push({ note: s.note, start: s.tick, duration: ev.tick - s.tick, vel: s.vel });
+                    }
+                    active[key] = ev;
+                } else if (ev.type === 'off' && active[key]) {
+                    const s = active[key];
+                    blocks.push({ note: s.note, start: s.tick, duration: ev.tick - s.tick, vel: s.vel });
+                    delete active[key];
+                }
+            });
+            return blocks;
+        }
+
+        function draw(currentTimeMs) {
+            if (noteBlocks.length === 0) return;
+            const minNote = Math.min(...noteBlocks.map(b => b.note));
+            const maxNote = Math.max(...noteBlocks.map(b => b.note));
+            const noteRange = maxNote - minNote + 1;
+
+            canvas.width = 1200;
+            canvas.height = noteRange * 6 + 100;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            noteBlocks.forEach(b => {
+                const x = ((b.start - minTick) / tickRange) * canvas.width;
+                const w = (b.duration / tickRange) * canvas.width;
+                const y = (b.note - minNote) * 6;
+                const brightness = Math.floor((b.vel / 127) * 40) + 30;
+                ctx.fillStyle = `hsl(210, 80%, ${brightness}%)`;
+                ctx.fillRect(x, y, Math.max(w, 1), 5);
+            });
+
+            if (isPlaying) {
+                const elapsed = currentTimeMs - startTime;
+                const cursorX = (elapsed / STRETCH_DURATION_MS) * canvas.width;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, 0);
+                ctx.lineTo(cursorX, canvas.height);
+                ctx.stroke();
+                
+                const progress = (elapsed / STRETCH_DURATION_MS * 100).toFixed(2);
+                stats.innerHTML ="Playing... progress" +progress+"% complete | Time:progress "+Math.floor(elapsed/1000)+"s / 1200s";
+            }
+        }
+
+        function playLoop() {
+            if (!isPlaying) return;
+            const now = performance.now();
+            const elapsed = now - startTime;
+            
+            noteBlocks.forEach(b => {
+                const stretchedStart = ((b.start - minTick) / tickRange) * STRETCH_DURATION_MS;
+                if (!b.played && elapsed >= stretchedStart && elapsed < stretchedStart + 100) {
+                    bellInst.play(b.note, 0.3, 8000);
+                    b.played = true;
+                }
+            });
+
+            draw(now);
+
+            if (elapsed < STRETCH_DURATION_MS) {
+                requestAnimationFrame(playLoop);
+            } else {
+                isPlaying = false;
+                stats.innerHTML = "Composition finished.";
+            }
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            await initAudio();
+            const file = e.target.files[0];
+            if (!file) return;
+            const buffer = await file.arrayBuffer();
+            const raw = parseMidi(buffer);
+            if (!raw) return;
+
+            noteBlocks = convertToBlocks(raw);
+            minTick = Math.min(...noteBlocks.map(b => b.start));
+            const maxTick = Math.max(...noteBlocks.map(b => b.start + b.duration));
+            tickRange = maxTick - minTick;
+
+            noteBlocks.forEach(b => b.played = false);
+            startTime = performance.now();
+            isPlaying = true;
+            
+            requestAnimationFrame(playLoop);
+        });
+    </script>
+</body>
+</html>
